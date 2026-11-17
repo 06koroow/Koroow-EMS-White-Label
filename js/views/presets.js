@@ -1,0 +1,5798 @@
+/* ============================================================
+   presets.js — Channel Lists, Patch Points, Stageboxes & Patch Sheet Builder
+   ------------------------------------------------------------
+   Allows technicians to:
+   1. Build and manage reusable standalone Channel Input/Output Presets.
+   2. Design physical Patch Points & Stageboxes (4ch, 8ch, 16ch, custom) with
+      locations (SL, SR, USC, DSR, etc.).
+   3. Build full Event Patch Sheets: assign channels to stageboxes, color-code
+      by act/artist, and track repatches between acts.
+   4. Generate live Changeover / Repatch checklists for show technicians.
+   ============================================================ */
+RMTP.presets = (function () {
+  function getInventoryMicSuggestions() {
+    const all = RMTP.store.all('inventory') || [];
+    const mics = all.filter(r => r.category === 'Sound - Microphones' || r.category === 'Sound - DI/Stands');
+    const names = new Set(mics.map(m => (m.name || '').trim()).filter(Boolean));
+    const sorted = Array.from(names).sort((a, b) => a.localeCompare(b));
+    return sorted.length ? sorted : [
+      'Shure Beta 52', 'Shure SM57', 'Shure SM58', 'Shure Beta 58', 'Shure Beta 91A', 'Sennheiser e604', 'Sennheiser e906',
+      'AKG C414', 'AKG D112', 'Radial ProDI', 'Radial ProD2', 'BSS AR-133', 'DPA 4099', 'Neumann KM184', 'Wireless Handheld'
+    ];
+  }
+  function injectMicDatalist() {
+    let dl = document.getElementById('inv-mic-suggestions');
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = 'inv-mic-suggestions';
+      document.body.appendChild(dl);
+    }
+    dl.innerHTML = getInventoryMicSuggestions().map(p => '<option value="' + RMTP.ui.esc(p) + '"></option>').join('');
+  }
+
+  const store = RMTP.store;
+  const ui = RMTP.ui;
+
+  /* ---- Default Factory Channel Presets ---- */
+  const DEFAULT_INPUT_PRESETS = [
+    {
+      id: 'preset-inp-band-4pc',
+      type: 'input',
+      name: '4-Piece Band (Standard)',
+      category: 'Band / Live',
+      description: 'Standard 18-channel band setup with full mic kit, DI boxes, and backing vocals.',
+      channels: [
+        { channel: 1, instrument: 'Kick In', mic: 'Shure Beta 91A', stand: 'N/A', pos: 'Upstage Centre', phantom: true },
+        { channel: 2, instrument: 'Kick Out', mic: 'Shure Beta 52', stand: 'Short Boom', pos: 'Upstage Centre', phantom: false },
+        { channel: 3, instrument: 'Snare Top', mic: 'Shure SM57', stand: 'Short Boom', pos: 'Upstage Centre', phantom: false },
+        { channel: 4, instrument: 'Snare Bottom', mic: 'Shure SM57', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 5, instrument: 'Hi-Hat', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Centre', phantom: true },
+        { channel: 6, instrument: 'Rack Tom', mic: 'Sennheiser e604', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 7, instrument: 'Floor Tom', mic: 'Sennheiser e604', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 8, instrument: 'OH Left', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Left', phantom: true },
+        { channel: 9, instrument: 'OH Right', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Right', phantom: true },
+        { channel: 10, instrument: 'Bass DI', mic: 'Radial ProDI', stand: 'N/A', pos: 'Stage Right', phantom: false },
+        { channel: 11, instrument: 'Bass Mic', mic: 'Sennheiser e906', stand: 'Short Boom', pos: 'Stage Right', phantom: false },
+        { channel: 12, instrument: 'Gtr SL', mic: 'Shure SM57', stand: 'Short Boom', pos: 'Stage Left', phantom: false },
+        { channel: 13, instrument: 'Gtr SR', mic: 'Sennheiser e906', stand: 'Short Boom', pos: 'Stage Right', phantom: false },
+        { channel: 14, instrument: 'Keys L', mic: 'Radial ProD2', stand: 'N/A', pos: 'Stage Left', phantom: false },
+        { channel: 15, instrument: 'Keys R', mic: 'Radial ProD2', stand: 'N/A', pos: 'Stage Left', phantom: false },
+        { channel: 16, instrument: 'Lead Vox', mic: 'Shure Beta 58', stand: 'Tall Boom', pos: 'Centre Stage', phantom: false },
+        { channel: 17, instrument: 'Backing Vox SL', mic: 'Shure SM58', stand: 'Tall Boom', pos: 'Stage Left', phantom: false },
+        { channel: 18, instrument: 'Backing Vox SR', mic: 'Shure SM58', stand: 'Tall Boom', pos: 'Stage Right', phantom: false }
+      ]
+    },
+    {
+      id: 'preset-inp-acoustic-duo',
+      type: 'input',
+      name: 'Acoustic Duo / Trio',
+      category: 'Acoustic',
+      description: '5-channel setup for acoustic guitars, vocals, and cajon / percussion.',
+      channels: [
+        { channel: 1, instrument: 'Acoustic Gtr L', mic: 'Radial ProDI', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 2, instrument: 'Acoustic Gtr R', mic: 'Radial ProDI', stand: 'N/A', pos: 'Stage Right', phantom: false },
+        { channel: 3, instrument: 'Vocal 1 (Lead)', mic: 'Shure Beta 58', stand: 'Tall Boom', pos: 'Centre Stage', phantom: false },
+        { channel: 4, instrument: 'Vocal 2', mic: 'Shure SM58', stand: 'Tall Boom', pos: 'Stage Right', phantom: false },
+        { channel: 5, instrument: 'Percussion / Cajon', mic: 'Shure Beta 91A', stand: 'N/A', pos: 'Upstage Centre', phantom: true }
+      ]
+    },
+    {
+      id: 'preset-inp-dj-playback',
+      type: 'input',
+      name: 'DJ / Club Playback',
+      category: 'DJ / Club',
+      description: 'Stereo DJ master feeds, booth line inputs, and wireless host MC mic.',
+      channels: [
+        { channel: 1, instrument: 'DJ Master L', mic: 'Radial ProD2', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 2, instrument: 'DJ Master R', mic: 'Radial ProD2', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 3, instrument: 'DJ Booth L', mic: 'Line In', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 4, instrument: 'DJ Booth R', mic: 'Line In', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 5, instrument: 'Host / MC Mic', mic: 'Wireless Handheld', stand: 'Straight Stand', pos: 'Downstage Centre', phantom: false }
+      ]
+    },
+    {
+      id: 'preset-inp-festival-16ch',
+      type: 'input',
+      name: '16ch Festival Core Patch',
+      category: 'Festival / Stage',
+      description: 'Comprehensive 16-channel festival core patch ready for rapid changeovers.',
+      channels: [
+        { channel: 1, instrument: 'Kick', mic: 'Shure Beta 52', stand: 'Short Boom', pos: 'Upstage Centre', phantom: false },
+        { channel: 2, instrument: 'Snare', mic: 'Shure SM57', stand: 'Short Boom', pos: 'Upstage Centre', phantom: false },
+        { channel: 3, instrument: 'Hi-Hat', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Centre', phantom: true },
+        { channel: 4, instrument: 'Tom 1', mic: 'Sennheiser e604', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 5, instrument: 'Tom 2', mic: 'Sennheiser e604', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 6, instrument: 'Tom 3', mic: 'Sennheiser e604', stand: 'Claw / Clip', pos: 'Upstage Centre', phantom: false },
+        { channel: 7, instrument: 'OH L', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Left', phantom: true },
+        { channel: 8, instrument: 'OH R', mic: 'AKG C414', stand: 'Tall Boom', pos: 'Upstage Right', phantom: true },
+        { channel: 9, instrument: 'Bass DI', mic: 'Radial ProDI', stand: 'N/A', pos: 'Stage Right', phantom: false },
+        { channel: 10, instrument: 'Gtr 1', mic: 'Shure SM57', stand: 'Short Boom', pos: 'Stage Left', phantom: false },
+        { channel: 11, instrument: 'Gtr 2', mic: 'Sennheiser e906', stand: 'Short Boom', pos: 'Stage Right', phantom: false },
+        { channel: 12, instrument: 'Keys L', mic: 'Radial ProD2', stand: 'N/A', pos: 'Stage Left', phantom: false },
+        { channel: 13, instrument: 'Keys R', mic: 'Radial ProD2', stand: 'N/A', pos: 'Stage Left', phantom: false },
+        { channel: 14, instrument: 'Vox 1', mic: 'Shure Beta 58', stand: 'Tall Boom', pos: 'Downstage Left', phantom: false },
+        { channel: 15, instrument: 'Vox 2 (Main)', mic: 'Shure Beta 58', stand: 'Tall Boom', pos: 'Downstage Centre', phantom: false },
+        { channel: 16, instrument: 'Vox 3', mic: 'Shure Beta 58', stand: 'Tall Boom', pos: 'Downstage Right', phantom: false }
+      ]
+    },
+    {
+      id: 'preset-inp-corporate-speech',
+      type: 'input',
+      name: 'Panel & Corporate Speech',
+      category: 'Corporate / AV',
+      description: 'Lectern condenser, wireless handhelds, lavaliers, and stereo laptop audio feeds.',
+      channels: [
+        { channel: 1, instrument: 'Lectern Mic', mic: 'Gooseneck Condenser', stand: 'Lectern', pos: 'Downstage Right', phantom: true },
+        { channel: 2, instrument: 'Wireless Handheld 1', mic: 'Shure QLXD Handheld', stand: 'Straight Stand', pos: 'Centre Stage', phantom: false },
+        { channel: 3, instrument: 'Wireless Handheld 2', mic: 'Shure QLXD Handheld', stand: 'Straight Stand', pos: 'Centre Stage', phantom: false },
+        { channel: 4, instrument: 'Wireless Lav 1', mic: 'Shure Bodypack / Lav', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 5, instrument: 'Wireless Lav 2', mic: 'Shure Bodypack / Lav', stand: 'N/A', pos: 'Centre Stage', phantom: false },
+        { channel: 6, instrument: 'Laptop Audio L', mic: 'Radial USB-Pro', stand: 'N/A', pos: 'FOH / Control', phantom: false },
+        { channel: 7, instrument: 'Laptop Audio R', mic: 'Radial USB-Pro', stand: 'N/A', pos: 'FOH / Control', phantom: false }
+      ]
+    }
+  ];
+
+  const DEFAULT_OUTPUT_PRESETS = [
+    {
+      id: 'preset-out-wedges-4',
+      type: 'output',
+      name: '4 Stage Wedges',
+      category: 'Monitors',
+      description: 'Standard 4-way stage wedge mix (DSL, DSC, DSR, Drum Fill).',
+      channels: [
+        { num: 1, name: 'Mix 1 (DSL Wedge)', type: 'Wedge', dest: 'Downstage Left', stereo: false },
+        { num: 2, name: 'Mix 2 (DSC Wedge)', type: 'Wedge', dest: 'Downstage Centre', stereo: false },
+        { num: 3, name: 'Mix 3 (DSR Wedge)', type: 'Wedge', dest: 'Downstage Right', stereo: false },
+        { num: 4, name: 'Mix 4 (Drum Fill)', type: 'Wedge', dest: 'Upstage Centre', stereo: false }
+      ]
+    },
+    {
+      id: 'preset-out-wedges-iem-6',
+      type: 'output',
+      name: '4 Wedges + 2 Stereo IEMs',
+      category: 'Monitors',
+      description: '4 discrete floor wedges plus 2 stereo wireless in-ear monitor transmitters.',
+      channels: [
+        { num: 1, name: 'Mix 1 (DSL Wedge)', type: 'Wedge', dest: 'Downstage Left', stereo: false },
+        { num: 2, name: 'Mix 2 (DSC Wedge)', type: 'Wedge', dest: 'Downstage Centre', stereo: false },
+        { num: 3, name: 'Mix 3 (DSR Wedge)', type: 'Wedge', dest: 'Downstage Right', stereo: false },
+        { num: 4, name: 'Mix 4 (Drum Fill)', type: 'Wedge', dest: 'Upstage Centre', stereo: false },
+        { num: 5, name: 'IEM 1 (Lead Vox)', type: 'IEM', dest: 'Transmitter 1 (Ch 1-2)', stereo: true },
+        { num: 6, name: 'IEM 2 (MD / Keys)', type: 'IEM', dest: 'Transmitter 2 (Ch 3-4)', stereo: true }
+      ]
+    }
+  ];
+
+  const DEFAULT_PATCH_POINTS = [
+    { id: 'pp-stage-box-sl', name: 'Stage Left Patch Point', capacityIn: 16, capacityOut: 4, location: 'Stage Left' },
+    { id: 'pp-stage-box-sr', name: 'Stage Right Patch Point', capacityIn: 8, capacityOut: 4, location: 'Stage Right' },
+    { id: 'pp-drum-riser', name: 'Drum Riser Sub-Snake', capacityIn: 12, capacityOut: 2, location: 'Upstage Centre' },
+    { id: 'pp-foh-drive', name: 'FOH Drive Rack', capacityIn: 4, capacityOut: 8, location: 'FOH / Control' }
+  ];
+
+  const DEFAULT_HOME_RUN = {
+    name: 'Main Stage Rack (DL32 / Rio32)',
+    type: 'Digital Stage Rack (AES50 / Dante)',
+    location: 'Stage Left Wing',
+    inputChannels: 32,
+    outputChannels: 16,
+    prefix: 'HR',
+    notes: 'Main trunk feed connecting all stageboxes and drops to FOH & Monitor consoles.'
+  };
+
+  const HOME_RUN_TYPES = [
+    'Digital Stage Rack (AES50 / Dante)',
+    'Analog Splitter Multicore',
+    'Dante / AES67 Network I/O',
+    'MADI Stage Box',
+    'FOH Local Console I/O',
+    'Custom Multi-Pin Trunk'
+  ];
+
+  const CONNECTOR_TYPES = [
+    'XLR Female (Input)',
+    'XLR Male (Output)',
+    '1/4" TRS Jack',
+    'speakON NL4',
+    'speakON NL8',
+    'powerCON TRUE1',
+    'powerCON 20A Blue/Grey',
+    'EtherCON (Cat6A / Dante)',
+    'BNC (MADI / Wordclock)',
+    'Multi-pin (Socapex / Harting)',
+    'AES/EBU XLR'
+  ];
+
+  const DEFAULT_ROOM_IO_PRESETS = [
+    {
+      id: 'room-io-main-hall',
+      space: 'Main Hall',
+      name: 'Main Hall \u2014 Standard Live Production I/O',
+      description: 'Standard multi-zone stagebox network with 32-channel digital trunk and 16-channel monitor & PA drive distribution.',
+      homeRun: {
+        name: 'Main Hall \u2014 Main Stage Rack (DL32)',
+        type: 'Digital Stage Rack (AES50 / Dante)',
+        location: 'Stage Left Wing',
+        inputChannels: 32,
+        outputChannels: 16,
+        prefix: 'MH',
+        notes: 'Primary digital stage rack feeding FOH & Monitor console via redundant Dante.'
+      },
+      stageboxes: [
+        {
+          id: 'sb-stage-a',
+          letter: 'A',
+          name: 'Drum & Backline Sub-Snake',
+          location: 'Upstage Centre',
+          capacity: 8,
+          channels: [
+            { socket: 1, actId: 'act-house', instrument: 'Kick In', mic: 'Beta 91A', phantom: true, repatch: false, repatchTo: '', homeRunCh: 1, connectorType: 'XLR Female (Input)' },
+            { socket: 2, actId: 'act-house', instrument: 'Kick Out', mic: 'Beta 52', phantom: false, repatch: false, repatchTo: '', homeRunCh: 2, connectorType: 'XLR Female (Input)' },
+            { socket: 3, actId: 'act-house', instrument: 'Snare Top', mic: 'SM57', phantom: false, repatch: false, repatchTo: '', homeRunCh: 3, connectorType: 'XLR Female (Input)' },
+            { socket: 4, actId: 'act-house', instrument: 'Hi-Hat', mic: 'C414', phantom: true, repatch: false, repatchTo: '', homeRunCh: 4, connectorType: 'XLR Female (Input)' },
+            { socket: 5, actId: 'act-house', instrument: 'Rack Tom', mic: 'e604', phantom: false, repatch: false, repatchTo: '', homeRunCh: 5, connectorType: 'XLR Female (Input)' },
+            { socket: 6, actId: 'act-house', instrument: 'Floor Tom', mic: 'e604', phantom: false, repatch: false, repatchTo: '', homeRunCh: 6, connectorType: 'XLR Female (Input)' },
+            { socket: 7, actId: 'act-house', instrument: 'Percussion / Cajon', mic: 'Beta 91A', phantom: true, repatch: false, repatchTo: '', homeRunCh: 7, connectorType: 'XLR Female (Input)' },
+            { socket: 8, actId: 'act-house', instrument: 'Drum Sub / Spare', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 8, connectorType: 'XLR Female (Input)' }
+          ],
+          outputChannels: [
+            { socket: 1, name: 'Drum Fill Sub Mix', type: 'Wedge', dest: 'Upstage Centre', connectorType: 'speakON NL4', homeRunOutCh: 4 },
+            { socket: 2, name: 'Drummer Wired IEM / Click', type: 'IEM', dest: 'Drum Riser', connectorType: 'XLR Male (Output)', homeRunOutCh: 8 }
+          ]
+        },
+        {
+          id: 'sb-stage-b',
+          letter: 'B',
+          name: 'Stage Left Main Snake',
+          location: 'Stage Left',
+          capacity: 16,
+          channels: [
+            { socket: 1, actId: 'act-house', instrument: 'Brass / Horn 1', mic: 'Beta 57A', phantom: false, repatch: false, repatchTo: '', homeRunCh: 9, connectorType: 'XLR Female (Input)' },
+            { socket: 2, actId: 'act-house', instrument: 'Tenor Sax', mic: 'DPA 4099', phantom: true, repatch: false, repatchTo: '', homeRunCh: 10, connectorType: 'XLR Female (Input)' },
+            { socket: 3, actId: 'act-house', instrument: 'Alto Sax', mic: 'DPA 4099', phantom: true, repatch: false, repatchTo: '', homeRunCh: 11, connectorType: 'XLR Female (Input)' },
+            { socket: 4, actId: 'act-house', instrument: 'Trombone', mic: 'MD421', phantom: false, repatch: false, repatchTo: '', homeRunCh: 12, connectorType: 'XLR Female (Input)' },
+            { socket: 5, actId: 'act-house', instrument: 'Gtr SL', mic: 'SM57', phantom: false, repatch: false, repatchTo: '', homeRunCh: 13, connectorType: 'XLR Female (Input)' },
+            { socket: 6, actId: 'act-house', instrument: 'Keys L', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 14, connectorType: 'XLR Female (Input)' },
+            { socket: 7, actId: 'act-house', instrument: 'Keys R', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 15, connectorType: 'XLR Female (Input)' },
+            { socket: 8, actId: 'act-house', instrument: 'Acoustic Gtr SL', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 16, connectorType: 'XLR Female (Input)' },
+            { socket: 9, actId: 'act-house', instrument: 'Backing Vox SL', mic: 'SM58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 17, connectorType: 'XLR Female (Input)' },
+            { socket: 10, actId: 'act-house', instrument: 'Talkback SL', mic: 'SM58 w/ Switch', phantom: false, repatch: false, repatchTo: '', homeRunCh: 18, connectorType: 'XLR Female (Input)' },
+            { socket: 11, actId: 'act-house', instrument: 'Spare SL 1', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null, connectorType: 'XLR Female (Input)' },
+            { socket: 12, actId: 'act-house', instrument: 'Spare SL 2', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null, connectorType: 'XLR Female (Input)' }
+          ],
+          outputChannels: [
+            { socket: 1, name: 'Mix 1 (DSL Wedge)', type: 'Wedge', dest: 'Downstage Left', connectorType: 'speakON NL4', homeRunOutCh: 1 },
+            { socket: 2, name: 'Mix 2 (SL Sidefill)', type: 'Fill', dest: 'Stage Left Wing', connectorType: 'speakON NL4', homeRunOutCh: 5 }
+          ]
+        },
+        {
+          id: 'sb-stage-c',
+          letter: 'C',
+          name: 'Stage Right & Front Line',
+          location: 'Stage Right',
+          capacity: 8,
+          channels: [
+            { socket: 1, actId: 'act-house', instrument: 'Bass DI', mic: 'ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 19, connectorType: 'XLR Female (Input)' },
+            { socket: 2, actId: 'act-house', instrument: 'Bass Mic', mic: 'e906', phantom: false, repatch: false, repatchTo: '', homeRunCh: 20, connectorType: 'XLR Female (Input)' },
+            { socket: 3, actId: 'act-house', instrument: 'Gtr SR', mic: 'e906', phantom: false, repatch: false, repatchTo: '', homeRunCh: 21, connectorType: 'XLR Female (Input)' },
+            { socket: 4, actId: 'act-house', instrument: 'Lead Vox DSC', mic: 'Beta 58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 22, connectorType: 'XLR Female (Input)' },
+            { socket: 5, actId: 'act-house', instrument: 'Backing Vox SR', mic: 'SM58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 23, connectorType: 'XLR Female (Input)' },
+            { socket: 6, actId: 'act-house', instrument: 'Host / MC Wireless', mic: 'QLXD Handheld', phantom: false, repatch: false, repatchTo: '', homeRunCh: 24, connectorType: 'XLR Female (Input)' },
+            { socket: 7, actId: 'act-house', instrument: 'Spare SR 1', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: null, connectorType: 'XLR Female (Input)' },
+            { socket: 8, actId: 'act-house', instrument: 'Spare SR 2', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null, connectorType: 'XLR Female (Input)' }
+          ],
+          outputChannels: [
+            { socket: 1, name: 'Mix 3 (DSC Wedge)', type: 'Wedge', dest: 'Downstage Centre', connectorType: 'speakON NL4', homeRunOutCh: 2 },
+            { socket: 2, name: 'Mix 4 (DSR Wedge)', type: 'Wedge', dest: 'Downstage Right', connectorType: 'speakON NL4', homeRunOutCh: 3 }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'room-io-studio-theatre',
+      space: 'Studio Theatre',
+      name: 'Studio Theatre \u2014 Compact Live & Club I/O',
+      description: '16 In / 8 Out setup with compact drop boxes tailored for intimate live gigs and club nights.',
+      homeRun: {
+        name: 'Studio Theatre \u2014 Compact I/O Rack',
+        type: 'Digital Stage Rack (AES50 / Dante)',
+        location: 'Stage Left',
+        inputChannels: 16,
+        outputChannels: 8,
+        prefix: 'ST',
+        notes: 'Compact rack connecting Studio floor boxes to digital mixing console.'
+      },
+      stageboxes: [
+        {
+          id: 'sb-studio-a',
+          letter: 'A',
+          name: 'Front Stage Drop Snake',
+          location: 'Centre Stage',
+          capacity: 8,
+          channels: [
+            { socket: 1, actId: 'act-house', instrument: 'Vocal 1 (Lead)', mic: 'Beta 58A', phantom: false, repatch: false, repatchTo: '', homeRunCh: 1, connectorType: 'XLR Female (Input)' },
+            { socket: 2, actId: 'act-house', instrument: 'Vocal 2', mic: 'SM58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 2, connectorType: 'XLR Female (Input)' },
+            { socket: 3, actId: 'act-house', instrument: 'Acoustic / Gtr DI', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 3, connectorType: 'XLR Female (Input)' },
+            { socket: 4, actId: 'act-house', instrument: 'Bass DI', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 4, connectorType: 'XLR Female (Input)' },
+            { socket: 5, actId: 'act-house', instrument: 'DJ Master L', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 5, connectorType: 'XLR Female (Input)' },
+            { socket: 6, actId: 'act-house', instrument: 'DJ Master R', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 6, connectorType: 'XLR Female (Input)' },
+            { socket: 7, actId: 'act-house', instrument: 'DJ Booth L', mic: 'Line In', phantom: false, repatch: false, repatchTo: '', homeRunCh: 7, connectorType: '1/4" TRS Jack' },
+            { socket: 8, actId: 'act-house', instrument: 'DJ Booth R', mic: 'Line In', phantom: false, repatch: false, repatchTo: '', homeRunCh: 8, connectorType: '1/4" TRS Jack' }
+          ],
+          outputChannels: [
+            { socket: 1, name: 'Studio Mix 1 (Wedge L)', type: 'Wedge', dest: 'Downstage Left', connectorType: 'speakON NL4', homeRunOutCh: 1 },
+            { socket: 2, name: 'Studio Mix 2 (Wedge R)', type: 'Wedge', dest: 'Downstage Right', connectorType: 'speakON NL4', homeRunOutCh: 2 },
+            { socket: 3, name: 'DJ Booth Monitor L', type: 'Wedge', dest: 'DJ Booth Left', connectorType: 'XLR Male (Output)', homeRunOutCh: 3 },
+            { socket: 4, name: 'DJ Booth Monitor R', type: 'Wedge', dest: 'DJ Booth Right', connectorType: 'XLR Male (Output)', homeRunOutCh: 4 }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'room-io-the-cinema',
+      space: 'The Cinema',
+      name: 'The Cinema \u2014 AV / Q&A Panel & Screening I/O',
+      description: 'Lectern inputs, wireless lavaliers, surround cinema feeds, and stereo AV tie-lines.',
+      homeRun: {
+        name: 'The Cinema \u2014 AV Tie Rack',
+        type: 'FOH Local Console I/O',
+        location: 'FOH / Control',
+        inputChannels: 12,
+        outputChannels: 8,
+        prefix: 'CIN-HR',
+        notes: 'Dedicated tie lines between Cinema projection booth, stage podium, and AV processors.'
+      },
+      stageboxes: [
+        {
+          id: 'sb-cin-a',
+          letter: 'A',
+          name: 'Podium & Stage AV Drop',
+          location: 'Downstage Right',
+          capacity: 6,
+          channels: [
+            { socket: 1, actId: 'act-house', instrument: 'Lectern Gooseneck', mic: 'Condenser Gooseneck', phantom: true, repatch: false, repatchTo: '', homeRunCh: 1, connectorType: 'XLR Female (Input)' },
+            { socket: 2, actId: 'act-house', instrument: 'Wireless Handheld 1', mic: 'QLXD Handheld', phantom: false, repatch: false, repatchTo: '', homeRunCh: 2, connectorType: 'XLR Female (Input)' },
+            { socket: 3, actId: 'act-house', instrument: 'Wireless Handheld 2', mic: 'QLXD Handheld', phantom: false, repatch: false, repatchTo: '', homeRunCh: 3, connectorType: 'XLR Female (Input)' },
+            { socket: 4, actId: 'act-house', instrument: 'Wireless Lav 1', mic: 'Bodypack / Lav', phantom: false, repatch: false, repatchTo: '', homeRunCh: 4, connectorType: 'XLR Female (Input)' },
+            { socket: 5, actId: 'act-house', instrument: 'Laptop Audio L', mic: 'Radial USB-Pro', phantom: false, repatch: false, repatchTo: '', homeRunCh: 5, connectorType: '1/4" TRS Jack' },
+            { socket: 6, actId: 'act-house', instrument: 'Laptop Audio R', mic: 'Radial USB-Pro', phantom: false, repatch: false, repatchTo: '', homeRunCh: 6, connectorType: '1/4" TRS Jack' }
+          ],
+          outputChannels: [
+            { socket: 1, name: 'Cinema PA Left', type: 'Line Out', dest: 'Main Screen Left', connectorType: 'XLR Male (Output)', homeRunOutCh: 1 },
+            { socket: 2, name: 'Cinema PA Right', type: 'Line Out', dest: 'Main Screen Right', connectorType: 'XLR Male (Output)', homeRunOutCh: 2 },
+            { socket: 3, name: 'Cinema Sub', type: 'Line Out', dest: 'Cinema LFE Sub', connectorType: 'XLR Male (Output)', homeRunOutCh: 3 },
+            { socket: 4, name: 'Assisted Hearing Loop', type: 'Feed', dest: 'Induction Loop Amp', connectorType: 'XLR Male (Output)', homeRunOutCh: 4 }
+          ]
+        }
+      ]
+    }
+  ];
+
+  const HOME_RUN_PRESETS = [
+    { label: '32 In / 16 Out (Standard Digital Stage Rack)', inputs: 32, outputs: 16, type: 'Digital Stage Rack (AES50 / Dante)', prefix: 'HR' },
+    { label: '24 In / 8 Out (Medium Analog Snake)', inputs: 24, outputs: 8, type: 'Analog Splitter Multicore', prefix: 'HR' },
+    { label: '16 In / 8 Out (Compact Drop Rack)', inputs: 16, outputs: 8, type: 'Digital Stage Rack (AES50 / Dante)', prefix: 'HR' },
+    { label: '48 In / 16 Out (Festival Tour Splitter)', inputs: 48, outputs: 16, type: 'Analog Splitter Multicore', prefix: 'Split' },
+    { label: '64 In / 24 Out (Large Arena Multi-Trunk)', inputs: 64, outputs: 24, type: 'Dante / AES67 Network I/O', prefix: 'FOH' }
+  ];
+
+  const STAGE_LOCATIONS = [
+    'Stage Left',
+    'Stage Right',
+    'Centre Stage',
+    'Downstage Left',
+    'Downstage Centre',
+    'Downstage Right',
+    'Upstage Left',
+    'Upstage Centre',
+    'Upstage Right',
+    'Drum Riser',
+    'Keyboard Riser',
+    'FOH / Control',
+    'Monitor World',
+    'Stage Left Wing',
+    'Stage Right Wing',
+    'Offstage Wing'
+  ];
+
+  const ACT_COLORS = [
+    { id: 'blue', label: 'Blue', bg: 'bg-blue-500/15', border: 'border-blue-500/40', text: 'text-blue-600 dark:text-blue-400', hex: '#3b82f6' },
+    { id: 'purple', label: 'Purple', bg: 'bg-purple-500/15', border: 'border-purple-500/40', text: 'text-purple-600 dark:text-purple-400', hex: '#a855f7' },
+    { id: 'emerald', label: 'Emerald', bg: 'bg-emerald-500/15', border: 'border-emerald-500/40', text: 'text-emerald-600 dark:text-emerald-400', hex: '#10b981' },
+    { id: 'amber', label: 'Amber', bg: 'bg-amber-500/15', border: 'border-amber-500/40', text: 'text-amber-600 dark:text-amber-400', hex: '#f59e0b' },
+    { id: 'rose', label: 'Rose', bg: 'bg-rose-500/15', border: 'border-rose-500/40', text: 'text-rose-600 dark:text-rose-400', hex: '#f43f5e' },
+    { id: 'cyan', label: 'Cyan', bg: 'bg-cyan-500/15', border: 'border-cyan-500/40', text: 'text-cyan-600 dark:text-cyan-400', hex: '#06b6d4' },
+    { id: 'slate', label: 'Slate / House', bg: 'bg-slate-500/15', border: 'border-slate-500/40', text: 'text-slate-600 dark:text-slate-400', hex: '#64748b' }
+  ];
+
+  function getActColorObj(colorId) {
+    return ACT_COLORS.find((c) => c.id === colorId) || ACT_COLORS[0];
+  }
+
+  function getHomeRunConfig(sheet) {
+    return Object.assign({}, DEFAULT_HOME_RUN, (sheet && sheet.homeRun) ? sheet.homeRun : {});
+  }
+
+  /* ---- Room I/O Presets Store ---- */
+  function getAllRoomIOPresets() {
+    const venues = store.all('venues');
+    return venues.filter(v => v.audio).map(v => ({
+      id: 'room-io-' + v.id,
+      space: v.name,
+      name: v.name + ' \u2014 I/O Architecture',
+      description: 'Permanent audio infrastructure for ' + v.name,
+      homeRun: v.audio,
+      stageboxes: (v.audio.stageboxes || []).map(sb => ({
+        letter: sb.letter,
+        name: sb.name,
+        location: sb.location,
+        channels: Array.from({length: sb.sockets || 16}, (_, i) => ({
+          socket: i+1, actId: 'act-house', instrument: '', mic: '', phantom: false, repatch: false, homeRunCh: null, connectorType: 'XLR'
+        }))
+      }))
+    }));
+  }
+
+  function getRoomIOPresetForSpace(spaceName) {
+    const list = getAllRoomIOPresets();
+    return list.find((p) => p.space === spaceName) || list[0] || null;
+  }
+
+  function saveRoomIOPreset(preset) {
+    let venue = store.find('venues', preset.space);
+    if (!venue) {
+      venue = { id: preset.space, name: preset.space, dmx: [] };
+    }
+    
+    venue.audio = JSON.parse(JSON.stringify(preset.homeRun || {}));
+    if (preset.stageboxes) {
+      venue.audio.stageboxes = preset.stageboxes.map(sb => ({
+        letter: sb.letter,
+        name: sb.name,
+        location: sb.location,
+        sockets: sb.channels ? sb.channels.length : 16
+      }));
+    }
+    
+    store.upsert('venues', venue);
+    return venue;
+  }
+
+  function applyRoomIOPresetToSheet(sheet, roomPreset) {
+    if (!sheet || !roomPreset) return;
+    if (roomPreset.homeRun) {
+      sheet.homeRun = JSON.parse(JSON.stringify(roomPreset.homeRun));
+    }
+    if (Array.isArray(roomPreset.stageboxes)) {
+      sheet.stageboxes = JSON.parse(JSON.stringify(roomPreset.stageboxes));
+      // Ensure acts are linked properly
+      const defaultActId = (sheet.acts && sheet.acts[0]) ? sheet.acts[0].id : 'act-house';
+      sheet.stageboxes.forEach((box) => {
+        (box.channels || []).forEach((ch) => {
+          if (!ch.actId || ch.actId === 'act-house') {
+            ch.actId = defaultActId;
+          }
+        });
+      });
+    }
+  }
+
+  /* ---- Database / Storage Access ---- */
+  function getAllPresets() {
+    let list = store.read('patch_presets', null);
+    if (!Array.isArray(list) || !list.length) {
+      list = DEFAULT_INPUT_PRESETS.concat(DEFAULT_OUTPUT_PRESETS);
+      store.write('patch_presets', list);
+    }
+    return list.slice();
+  }
+
+  function getInputs() {
+    return getAllPresets().filter((p) => p.type === 'input');
+  }
+
+  function getOutputs() {
+    return getAllPresets().filter((p) => p.type === 'output');
+  }
+
+  function getPreset(id) {
+    return getAllPresets().find((p) => p.id === id) || null;
+  }
+
+  function savePreset(preset) {
+    const list = getAllPresets();
+    const idx = list.findIndex((p) => p.id === preset.id);
+    const updated = Object.assign({
+      id: preset.id || store.uid('pre'),
+      updatedAt: Date.now(),
+      createdAt: preset.createdAt || Date.now()
+    }, preset);
+
+    if (store && store.upsert) {
+      store.upsert('patch_presets', updated);
+    } else {
+      if (idx > -1) { list[idx] = updated; } else { list.push(updated); }
+      store.write('patch_presets', list);
+    }
+    return updated;
+  }
+
+  function removePreset(id) {
+    if (store && store.remove) {
+      store.remove('patch_presets', id);
+    } else {
+      const list = getAllPresets().filter((p) => p.id !== id);
+      store.write('patch_presets', list);
+    }
+  }
+
+  function resetPresetDefaults() {
+    const defaults = DEFAULT_INPUT_PRESETS.concat(DEFAULT_OUTPUT_PRESETS);
+    store.write('patch_presets', defaults);
+    return defaults;
+  }
+
+  /* ---- Patch Sheets Collection ---- */
+  function getAllPatchSheets() {
+    let list = store.read('patch_sheets', null);
+    if (!Array.isArray(list)) {
+      list = [
+        {
+          id: 'ps-demo-festival',
+          name: 'Main Stage Multi-Act Patch Plan',
+          eventId: 'evt-1',
+          eventName: 'Harbour Brass Collective — Live',
+          space: 'Main Hall',
+          date: '2026-07-31',
+          notes: 'Stage patch with 3 Stageboxes (A: Drum Riser 8ch, B: Stage Left 16ch, C: Stage Right 8ch) mapped to 32-Channel Main Home Run Rack.',
+          homeRun: Object.assign({}, DEFAULT_HOME_RUN, {
+            name: 'Main Stage Rack (DL32 / Rio32)',
+            inputChannels: 32,
+            outputChannels: 16,
+            prefix: 'HR',
+            location: 'Stage Left Wing'
+          }),
+          acts: [
+            { id: 'act-house', name: 'House / Venue Core', color: 'slate' },
+            { id: 'act-support', name: 'Support Act (Acoustic Duo)', color: 'blue' },
+            { id: 'act-headliner', name: 'Kokoroko (Headliner)', color: 'purple' }
+          ],
+          patchPoints: DEFAULT_PATCH_POINTS,
+          stageboxes: [
+            {
+              id: 'sb-a',
+              letter: 'A',
+              name: 'Drum & Backline Drop',
+              location: 'Upstage Centre',
+              capacity: 8,
+              channels: [
+                { socket: 1, actId: 'act-headliner', instrument: 'Kick In', mic: 'Beta 91A', phantom: true, repatch: false, repatchTo: '', homeRunCh: 1 },
+                { socket: 2, actId: 'act-headliner', instrument: 'Kick Out', mic: 'Beta 52', phantom: false, repatch: false, repatchTo: '', homeRunCh: 2 },
+                { socket: 3, actId: 'act-headliner', instrument: 'Snare Top', mic: 'SM57', phantom: false, repatch: false, repatchTo: '', homeRunCh: 3 },
+                { socket: 4, actId: 'act-headliner', instrument: 'Hi-Hat', mic: 'C414', phantom: true, repatch: false, repatchTo: '', homeRunCh: 4 },
+                { socket: 5, actId: 'act-headliner', instrument: 'Rack Tom', mic: 'e604', phantom: false, repatch: false, repatchTo: '', homeRunCh: 5 },
+                { socket: 6, actId: 'act-headliner', instrument: 'Floor Tom', mic: 'e604', phantom: false, repatch: false, repatchTo: '', homeRunCh: 6 },
+                { socket: 7, actId: 'act-support', instrument: 'Percussion / Cajon', mic: 'Beta 91A', phantom: true, repatch: true, repatchTo: 'Move to Kokoroko Percussion', homeRunCh: 7 },
+                { socket: 8, actId: 'act-house', instrument: 'Spare / Sub DI', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 8 }
+              ]
+            },
+            {
+              id: 'sb-b',
+              letter: 'B',
+              name: 'Stage Left Main Snake',
+              location: 'Stage Left',
+              capacity: 16,
+              channels: [
+                { socket: 1, actId: 'act-headliner', instrument: 'Trumpet', mic: 'Beta 57A', phantom: false, repatch: false, repatchTo: '', homeRunCh: 9 },
+                { socket: 2, actId: 'act-headliner', instrument: 'Tenor Sax', mic: 'DPA 4099', phantom: true, repatch: false, repatchTo: '', homeRunCh: 10 },
+                { socket: 3, actId: 'act-headliner', instrument: 'Alto Sax', mic: 'DPA 4099', phantom: true, repatch: false, repatchTo: '', homeRunCh: 11 },
+                { socket: 4, actId: 'act-headliner', instrument: 'Trombone', mic: 'MD421', phantom: false, repatch: false, repatchTo: '', homeRunCh: 12 },
+                { socket: 5, actId: 'act-headliner', instrument: 'Gtr SL', mic: 'SM57', phantom: false, repatch: false, repatchTo: '', homeRunCh: 13 },
+                { socket: 6, actId: 'act-headliner', instrument: 'Keys L', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 14 },
+                { socket: 7, actId: 'act-headliner', instrument: 'Keys R', mic: 'ProD2', phantom: false, repatch: false, repatchTo: '', homeRunCh: 15 },
+                { socket: 8, actId: 'act-support', instrument: 'Acoustic Gtr (Support)', mic: 'Radial ProDI', phantom: false, repatch: true, repatchTo: 'Repatch to Synth DI during changeover', homeRunCh: 16 },
+                { socket: 9, actId: 'act-headliner', instrument: 'Backing Vox SL', mic: 'SM58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 17 },
+                { socket: 10, actId: 'act-house', instrument: 'Talkback SL', mic: 'SM58 w/ Switch', phantom: false, repatch: false, repatchTo: '', homeRunCh: 18 },
+                { socket: 11, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 12, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 13, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 14, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 15, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 16, actId: 'act-house', instrument: 'Unassigned', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null }
+              ]
+            },
+            {
+              id: 'sb-c',
+              letter: 'C',
+              name: 'Stage Right & Front Line',
+              location: 'Stage Right',
+              capacity: 8,
+              channels: [
+                { socket: 1, actId: 'act-headliner', instrument: 'Bass DI', mic: 'ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: 19 },
+                { socket: 2, actId: 'act-headliner', instrument: 'Bass Mic', mic: 'e906', phantom: false, repatch: false, repatchTo: '', homeRunCh: 20 },
+                { socket: 3, actId: 'act-headliner', instrument: 'Gtr SR', mic: 'e906', phantom: false, repatch: false, repatchTo: '', homeRunCh: 21 },
+                { socket: 4, actId: 'act-support', instrument: 'Support Lead Vox', mic: 'Beta 58', phantom: false, repatch: true, repatchTo: 'Headliner Centre Lead Vox', homeRunCh: 22 },
+                { socket: 5, actId: 'act-headliner', instrument: 'Backing Vox SR', mic: 'SM58', phantom: false, repatch: false, repatchTo: '', homeRunCh: 23 },
+                { socket: 6, actId: 'act-house', instrument: 'MC / Host Wireless', mic: 'QLXD Handheld', phantom: false, repatch: false, repatchTo: '', homeRunCh: 24 },
+                { socket: 7, actId: 'act-house', instrument: 'Spare DI', mic: 'Radial ProDI', phantom: false, repatch: false, repatchTo: '', homeRunCh: null },
+                { socket: 8, actId: 'act-house', instrument: 'Spare Line', mic: '', phantom: false, repatch: false, repatchTo: '', homeRunCh: null }
+              ]
+            }
+          ],
+          createdAt: Date.now() - 86400000,
+          updatedAt: Date.now() - 3600000
+        }
+      ];
+      store.write('patch_sheets', list);
+    }
+    return list.slice();
+  }
+
+  function getPatchSheet(id) {
+    return getAllPatchSheets().find((ps) => ps.id === id) || null;
+  }
+
+  function savePatchSheet(patchSheet) {
+    const list = getAllPatchSheets();
+    const idx = list.findIndex((ps) => ps.id === patchSheet.id);
+    const updated = Object.assign({
+      id: patchSheet.id || store.uid('ps'),
+      updatedAt: Date.now(),
+      createdAt: patchSheet.createdAt || Date.now()
+    }, patchSheet);
+
+    if (store && store.upsert) {
+      store.upsert('patch_sheets', updated);
+    } else {
+      if (idx > -1) { list[idx] = updated; } else { list.push(updated); }
+      store.write('patch_sheets', list);
+    }
+    return updated;
+  }
+
+  function removePatchSheet(id) {
+    if (store && store.remove) {
+      store.remove('patch_sheets', id);
+    } else {
+      const list = getAllPatchSheets().filter((ps) => ps.id !== id);
+      store.write('patch_sheets', list);
+    }
+  }
+
+  /* Compute all repatches across all stageboxes */
+  function computeRepatchList(sheet) {
+    const out = [];
+    if (!sheet || !Array.isArray(sheet.stageboxes)) return out;
+
+    sheet.stageboxes.forEach((box) => {
+      const socketGroups = {};
+      (box.channels || []).forEach(ch => {
+        if (!socketGroups[ch.socket]) socketGroups[ch.socket] = [];
+        socketGroups[ch.socket].push(ch);
+      });
+
+      Object.keys(socketGroups).forEach(socketNum => {
+        const layers = socketGroups[socketNum];
+        for (let i = 1; i < layers.length; i++) {
+          const prev = layers[i-1];
+          const curr = layers[i];
+          const actPrev = (sheet.acts || []).find((a) => a.id === prev.actId) || {name: 'Unknown'};
+          const actCurr = (sheet.acts || []).find((a) => a.id === curr.actId) || {name: 'Unknown'};
+          out.push({
+            stageboxLetter: box.letter || '?',
+            stageboxName: box.name || '',
+            stageboxLocation: box.location || '',
+            socket: curr.socket,
+            homeRunCh: curr.homeRunCh || null,
+            fromAct: actPrev.name,
+            toAct: actCurr.name,
+            fromInst: prev.instrument || 'Line',
+            toInst: curr.instrument || 'Line',
+            actColor: actCurr.color || 'slate',
+            mic: curr.mic || '',
+            phantom: !!curr.phantom
+          });
+        }
+      });
+    });
+    return out;
+  }
+
+  /* Compute Home Run mapping matrix from all stageboxes */
+  function computeHomeRunMapping(sheet) {
+    const hr = getHomeRunConfig(sheet);
+    const totalInputs = Math.max(1, parseInt(hr.inputChannels, 10) || 32);
+    const prefix = (hr.prefix || 'HR').trim();
+    const channels = [];
+
+    for (let i = 1; i <= totalInputs; i++) {
+      const padNum = i < 10 ? '0' + i : '' + i;
+      channels.push({
+        chNumber: i,
+        label: prefix + ' ' + padNum,
+        assignedSockets: []
+      });
+    }
+
+    if (sheet && Array.isArray(sheet.stageboxes)) {
+      sheet.stageboxes.forEach((box, sbIdx) => {
+        (box.channels || []).forEach((ch, chIdx) => {
+          const hrChNum = parseInt(ch.homeRunCh, 10);
+          if (hrChNum >= 1 && hrChNum <= totalInputs) {
+            const act = (sheet.acts || []).find((a) => a.id === ch.actId);
+            channels[hrChNum - 1].assignedSockets.push({
+              sbIdx: sbIdx,
+              chIdx: chIdx,
+              boxId: box.id,
+              boxLetter: box.letter || '?',
+              boxName: box.name || 'Stagebox',
+              boxLocation: box.location || 'Stage',
+              socket: ch.socket || (chIdx + 1),
+              instrument: ch.instrument || '',
+              mic: ch.mic || '',
+              phantom: !!ch.phantom,
+              repatch: !!ch.repatch,
+              repatchTo: ch.repatchTo || '',
+              actId: ch.actId,
+              actName: act ? act.name : 'House',
+              actColor: act ? act.color : 'slate'
+            });
+          }
+        });
+      });
+    }
+
+    return channels.map((c) => {
+      const count = c.assignedSockets.length;
+      // Determine if collision (more than 1 UNIQUE physical socket assigned)
+      const uniquePhysicalSockets = new Set(
+        c.assignedSockets.map(s => s.boxLetter + '-' + s.socket)
+      );
+      const isRealCollision = uniquePhysicalSockets.size > 1;
+
+      return Object.assign(c, {
+        isPatched: count > 0,
+        isCollision: isRealCollision,
+        primarySocket: count > 0 ? c.assignedSockets[0] : null,
+        layers: c.assignedSockets // include all layers for changeover schedule
+      });
+    });
+  }
+
+  /* Compute all unassigned sockets across stageboxes */
+  function computeUnassignedSockets(sheet) {
+    const list = [];
+    if (!sheet || !Array.isArray(sheet.stageboxes)) return list;
+    const hr = getHomeRunConfig(sheet);
+    const maxCh = Math.max(1, parseInt(hr.inputChannels, 10) || 32);
+
+    sheet.stageboxes.forEach((box, sbIdx) => {
+      (box.channels || []).forEach((ch, chIdx) => {
+        const hrChNum = parseInt(ch.homeRunCh, 10);
+        if (!hrChNum || hrChNum < 1 || hrChNum > maxCh) {
+          const act = (sheet.acts || []).find((a) => a.id === ch.actId);
+          list.push({
+            sbIdx: sbIdx,
+            chIdx: chIdx,
+            boxId: box.id,
+            boxLetter: box.letter || '?',
+            boxName: box.name || 'Stagebox',
+            boxLocation: box.location || 'Stage',
+            socket: ch.socket || (chIdx + 1),
+            instrument: ch.instrument || '',
+            mic: ch.mic || '',
+            phantom: !!ch.phantom,
+            repatch: !!ch.repatch,
+            actName: act ? act.name : 'House',
+            actColor: act ? act.color : 'slate'
+          });
+        }
+      });
+    });
+    return list;
+  }
+
+  /* Auto-patch all stagebox sockets sequentially into Home Run channels */
+  function autoPatchHomeRun(sheet, startFrom) {
+    if (!sheet || !Array.isArray(sheet.stageboxes)) return;
+    const hr = getHomeRunConfig(sheet);
+    const maxCh = Math.max(1, parseInt(hr.inputChannels, 10) || 32);
+    let currentCh = Math.max(1, parseInt(startFrom, 10) || 1);
+
+    sheet.stageboxes.forEach((box) => {
+      (box.channels || []).forEach((ch) => {
+        if (currentCh <= maxCh) {
+          ch.homeRunCh = currentCh;
+          currentCh++;
+        } else {
+          ch.homeRunCh = null;
+        }
+      });
+    });
+  }
+
+  /* Clear all Home Run mappings */
+  function clearHomeRunPatches(sheet) {
+    if (!sheet || !Array.isArray(sheet.stageboxes)) return;
+    sheet.stageboxes.forEach((box) => {
+      (box.channels || []).forEach((ch) => {
+        ch.homeRunCh = null;
+      });
+    });
+  }
+
+  /* ---- Standalone Channel Preset Editor Modal ---- */
+  function openEditorModal(presetOrNull, defaultType, onSaved) { injectMicDatalist();
+    const isEdit = !!(presetOrNull && presetOrNull.id);
+    const type = (presetOrNull && presetOrNull.type) || defaultType || 'input';
+    const isInput = type === 'input';
+
+    let channels = (presetOrNull && Array.isArray(presetOrNull.channels))
+      ? JSON.parse(JSON.stringify(presetOrNull.channels))
+      : [];
+
+    if (!channels.length) {
+      if (isInput) {
+        channels = [{ channel: 1, instrument: '', mic: '', stand: '', pos: '', phantom: false }];
+      } else {
+        channels = [{ num: 1, name: '', type: 'Wedge', dest: '', stereo: false }];
+      }
+    }
+
+    const STAND_OPTIONS = ['N/A', 'Short Boom', 'Tall Boom', 'Straight Stand', 'Claw / Clip', 'Desk Stand', 'Lectern'];
+    const POS_OPTIONS = ['Downstage Centre', 'Downstage Left', 'Downstage Right', 'Centre Stage', 'Stage Left', 'Stage Right', 'Upstage Centre', 'Upstage Left', 'Upstage Right', 'FOH / Control'];
+    const OUT_TYPE_OPTIONS = ['Wedge', 'IEM', 'Fill', 'Line Out', 'Feed', 'Matrix', 'Stream'];
+
+    function renderChannelsHtml() {
+      if (isInput) {
+        if (!channels.length) return '<div class="text-xs text-muted italic p-3 text-center bg-panel border border-line rounded">No channels added yet.</div>';
+        return channels.map((ch, idx) => (
+          '<div class="p-2.5 rounded-lg bg-panel border border-line flex flex-col gap-2 text-xs shadow-xs">' +
+            '<div class="flex items-center justify-between gap-2">' +
+              '<span class="font-mono font-bold text-accent text-xs">Ch ' + (ch.channel || (idx + 1)) + '</span>' +
+              '<div class="flex items-center gap-1">' +
+                '<label class="flex items-center gap-1 text-[11px] text-muted mr-2 cursor-pointer">' +
+                  '<input type="checkbox" data-p-inp-48v="' + idx + '" class="w-3.5 h-3.5 accent-[var(--danger)]" ' + (ch.phantom ? 'checked' : '') + ' />' +
+                  '<span class="' + (ch.phantom ? 'text-danger font-bold' : '') + '">+48V</span>' +
+                '</label>' +
+                '<button type="button" data-p-inp-up="' + idx + '" class="btn btn-ghost !p-1" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3.5 h-3.5') + '</button>' +
+                '<button type="button" data-p-inp-down="' + idx + '" class="btn btn-ghost !p-1" title="Move Down" ' + (idx === channels.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3.5 h-3.5') + '</button>' +
+                '<button type="button" data-p-inp-del="' + idx + '" class="btn btn-danger !p-1" title="Delete Channel">' + ui.icon('trash', 'w-3.5 h-3.5') + '</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2">' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Instrument / Source</label>' +
+                '<input data-p-inp-inst="' + idx + '" class="field !py-1 !px-2 text-xs" value="' + ui.esc(ch.instrument || '') + '" placeholder="e.g. Kick, Lead Vox" />' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Mic / DI Model</label>' +
+                '<input list="inv-mic-suggestions" data-p-inp-mic="' + idx + '" class="field !py-1 !px-2 text-xs" value="' + ui.esc(ch.mic || '') + '" placeholder="e.g. Beta 58, ProDI" />' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Stand</label>' +
+                '<select data-p-inp-stand="' + idx + '" class="field !py-1 !px-1.5 text-xs">' +
+                  '<option value="">Stand\u2026</option>' +
+                  STAND_OPTIONS.map((s) => '<option ' + (s === ch.stand ? 'selected' : '') + '>' + s + '</option>').join('') +
+                '</select>' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Position</label>' +
+                '<select data-p-inp-pos="' + idx + '" class="field !py-1 !px-1.5 text-xs">' +
+                  '<option value="">Position\u2026</option>' +
+                  POS_OPTIONS.map((p) => '<option ' + (p === ch.pos ? 'selected' : '') + '>' + p + '</option>').join('') +
+                '</select>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        )).join('');
+      } else {
+        if (!channels.length) return '<div class="text-xs text-muted italic p-3 text-center bg-panel border border-line rounded">No outputs added yet.</div>';
+        return channels.map((out, idx) => (
+          '<div class="p-2.5 rounded-lg bg-panel border border-line flex flex-col gap-2 text-xs shadow-xs">' +
+            '<div class="flex items-center justify-between gap-2">' +
+              '<div class="flex items-center gap-1.5">' +
+                '<span class="font-mono font-bold text-accent text-xs">Out ' + (out.num || (idx + 1)) + '</span>' +
+                (out.stereo ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-panel2 border border-info/40 text-info font-bold">STEREO</span>' : '') +
+              '</div>' +
+              '<div class="flex items-center gap-1">' +
+                '<label class="flex items-center gap-1 text-[11px] text-muted mr-2 cursor-pointer">' +
+                  '<input type="checkbox" data-p-out-stereo="' + idx + '" class="w-3.5 h-3.5 accent-[var(--info)]" ' + (out.stereo ? 'checked' : '') + ' />' +
+                  '<span>Stereo Pair</span>' +
+                '</label>' +
+                '<button type="button" data-p-out-up="' + idx + '" class="btn btn-ghost !p-1" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3.5 h-3.5') + '</button>' +
+                '<button type="button" data-p-out-down="' + idx + '" class="btn btn-ghost !p-1" title="Move Down" ' + (idx === channels.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3.5 h-3.5') + '</button>' +
+                '<button type="button" data-p-out-del="' + idx + '" class="btn btn-danger !p-1" title="Delete Output">' + ui.icon('trash', 'w-3.5 h-3.5') + '</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Label / Mix Name</label>' +
+                '<input data-p-out-name="' + idx + '" class="field !py-1 !px-2 text-xs" value="' + ui.esc(out.name || '') + '" placeholder="e.g. Mix 1 Lead Wedge" />' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Type</label>' +
+                '<select data-p-out-type="' + idx + '" class="field !py-1 !px-1.5 text-xs">' +
+                  OUT_TYPE_OPTIONS.map((t) => '<option ' + (t === out.type ? 'selected' : '') + '>' + t + '</option>').join('') +
+                '</select>' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-[10px] text-muted mb-0.5 font-medium">Destination / Stage Pos</label>' +
+                '<input data-p-out-dest="' + idx + '" class="field !py-1 !px-2 text-xs" value="' + ui.esc(out.dest || '') + '" placeholder="e.g. Downstage Left, TX 1" />' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        )).join('');
+      }
+    }
+
+    const m = ui.modal({
+      title: isEdit ? 'Edit ' + (isInput ? 'Input' : 'Output') + ' Preset' : 'New ' + (isInput ? 'Input' : 'Output') + ' Preset',
+      size: 'md:max-w-3xl',
+      body:
+        '<div class="grid gap-4 text-xs">' +
+          '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">' +
+            '<div>' +
+              '<label class="block text-xs font-semibold mb-1">Preset Name *</label>' +
+              '<input id="p-name" class="field" value="' + ui.esc((presetOrNull && presetOrNull.name) || '') + '" placeholder="e.g. 5-Piece Rock Band, 4 Wedges + 2 IEMs" />' +
+            '</div>' +
+            '<div>' +
+              '<label class="block text-xs font-semibold mb-1">Category</label>' +
+              '<input id="p-category" list="preset-categories-list" class="field" value="' + ui.esc((presetOrNull && presetOrNull.category) || (isInput ? 'Band / Live' : 'Monitors')) + '" placeholder="e.g. Band / Live, Acoustic, DJ, Monitors" />' +
+              '<datalist id="preset-categories-list">' +
+                '<option value="Band / Live">' +
+                '<option value="Acoustic">' +
+                '<option value="DJ / Club">' +
+                '<option value="Festival / Stage">' +
+                '<option value="Monitors">' +
+                '<option value="Broadcast / Recording">' +
+                '<option value="Corporate / AV">' +
+              '</datalist>' +
+            '</div>' +
+          '</div>' +
+          '<div>' +
+            '<label class="block text-xs font-semibold mb-1">Description / Notes</label>' +
+            '<input id="p-desc" class="field" value="' + ui.esc((presetOrNull && presetOrNull.description) || '') + '" placeholder="Brief overview of who or what this patch is suited for" />' +
+          '</div>' +
+
+          '<div class="p-3 rounded-xl bg-panel2/40 border border-line flex flex-col gap-3">' +
+            '<div class="flex items-center justify-between pb-2 border-b border-line/60">' +
+              '<div class="flex items-center gap-2">' +
+                '<span class="text-accent">' + ui.icon('sliders', 'w-4 h-4') + '</span>' +
+                '<span class="font-bold text-ink uppercase tracking-wider text-xs">' + (isInput ? 'Channel Input Patch' : 'Output & Monitor Patch') + '</span>' +
+                '<span id="p-chan-count-badge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-panel border border-line text-accent font-semibold">' + channels.length + ' ' + (isInput ? 'Channels' : 'Outputs') + '</span>' +
+              '</div>' +
+              '<button type="button" id="btn-p-add-row" class="btn btn-primary !py-1 !px-2.5 text-xs flex items-center gap-1 font-semibold">' +
+                ui.icon('plus', 'w-3.5 h-3.5') + '<span>' + (isInput ? 'Add Channel' : 'Add Output') + '</span>' +
+              '</button>' +
+            '</div>' +
+            '<div id="p-channels-list" class="grid gap-2 max-h-80 overflow-y-auto pr-1"></div>' +
+          '</div>' +
+        '</div>',
+      footer:
+        '<button class="btn btn-ghost" data-cancel>Cancel</button>' +
+        '<button class="btn btn-primary font-semibold" id="btn-p-save">Save Preset</button>'
+    });
+
+    function renumber() {
+      channels.forEach((c, i) => {
+        if (isInput) c.channel = i + 1;
+        else c.num = i + 1;
+      });
+    }
+
+    function wireChannels() {
+      const listEl = m.root.querySelector('#p-channels-list');
+      const countBadge = m.root.querySelector('#p-chan-count-badge');
+      if (countBadge) countBadge.textContent = channels.length + ' ' + (isInput ? 'Channels' : 'Outputs');
+      if (!listEl) return;
+      listEl.innerHTML = renderChannelsHtml();
+
+      if (isInput) {
+        listEl.querySelectorAll('[data-p-inp-inst]').forEach((inp) => {
+          inp.addEventListener('input', () => { channels[+inp.getAttribute('data-p-inp-inst')].instrument = inp.value; });
+        });
+        listEl.querySelectorAll('[data-p-inp-mic]').forEach((inp) => {
+          inp.addEventListener('input', () => { channels[+inp.getAttribute('data-p-inp-mic')].mic = inp.value; });
+        });
+        listEl.querySelectorAll('[data-p-inp-stand]').forEach((sel) => {
+          sel.addEventListener('change', () => { channels[+sel.getAttribute('data-p-inp-stand')].stand = sel.value; });
+        });
+        listEl.querySelectorAll('[data-p-inp-pos]').forEach((sel) => {
+          sel.addEventListener('change', () => { channels[+sel.getAttribute('data-p-inp-pos')].pos = sel.value; });
+        });
+        listEl.querySelectorAll('[data-p-inp-48v]').forEach((chk) => {
+          chk.addEventListener('change', () => { channels[+chk.getAttribute('data-p-inp-48v')].phantom = chk.checked; });
+        });
+        listEl.querySelectorAll('[data-p-inp-up]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = +btn.getAttribute('data-p-inp-up');
+            if (idx > 0) {
+              const t = channels[idx]; channels[idx] = channels[idx - 1]; channels[idx - 1] = t;
+              renumber(); wireChannels();
+            }
+          });
+        });
+        listEl.querySelectorAll('[data-p-inp-down]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = +btn.getAttribute('data-p-inp-down');
+            if (idx < channels.length - 1) {
+              const t = channels[idx]; channels[idx] = channels[idx + 1]; channels[idx + 1] = t;
+              renumber(); wireChannels();
+            }
+          });
+        });
+        listEl.querySelectorAll('[data-p-inp-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            channels.splice(+btn.getAttribute('data-p-inp-del'), 1);
+            renumber(); wireChannels();
+          });
+        });
+      } else {
+        listEl.querySelectorAll('[data-p-out-name]').forEach((inp) => {
+          inp.addEventListener('input', () => { channels[+inp.getAttribute('data-p-out-name')].name = inp.value; });
+        });
+        listEl.querySelectorAll('[data-p-out-type]').forEach((sel) => {
+          sel.addEventListener('change', () => { channels[+sel.getAttribute('data-p-out-type')].type = sel.value; });
+        });
+        listEl.querySelectorAll('[data-p-out-dest]').forEach((inp) => {
+          inp.addEventListener('input', () => { channels[+inp.getAttribute('data-p-out-dest')].dest = inp.value; });
+        });
+        listEl.querySelectorAll('[data-p-out-stereo]').forEach((chk) => {
+          chk.addEventListener('change', () => { channels[+chk.getAttribute('data-p-out-stereo')].stereo = chk.checked; });
+        });
+        listEl.querySelectorAll('[data-p-out-up]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = +btn.getAttribute('data-p-out-up');
+            if (idx > 0) {
+              const t = channels[idx]; channels[idx] = channels[idx - 1]; channels[idx - 1] = t;
+              renumber(); wireChannels();
+            }
+          });
+        });
+        listEl.querySelectorAll('[data-p-out-down]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const idx = +btn.getAttribute('data-p-out-down');
+            if (idx < channels.length - 1) {
+              const t = channels[idx]; channels[idx] = channels[idx + 1]; channels[idx + 1] = t;
+              renumber(); wireChannels();
+            }
+          });
+        });
+        listEl.querySelectorAll('[data-p-out-del]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            channels.splice(+btn.getAttribute('data-p-out-del'), 1);
+            renumber(); wireChannels();
+          });
+        });
+      }
+    }
+
+    const addRowBtn = m.root.querySelector('#btn-p-add-row');
+    if (addRowBtn) {
+      addRowBtn.addEventListener('click', () => {
+        if (isInput) {
+          channels.push({
+            channel: channels.length + 1,
+            instrument: '',
+            mic: '',
+            stand: '',
+            pos: '',
+            phantom: false
+          });
+        } else {
+          channels.push({
+            num: channels.length + 1,
+            name: '',
+            type: 'Wedge',
+            dest: '',
+            stereo: false
+          });
+        }
+        wireChannels();
+      });
+    }
+
+    wireChannels();
+
+    m.root.querySelector('[data-cancel]').addEventListener('click', () => m.close());
+    m.root.querySelector('#btn-p-save').addEventListener('click', () => {
+      const name = (m.root.querySelector('#p-name').value || '').trim();
+      if (!name) { ui.toast('Enter a preset name', 'danger'); return; }
+      if (!channels.length) { ui.toast('Add at least one channel to the preset', 'danger'); return; }
+
+      renumber();
+      const saved = savePreset({
+        id: (presetOrNull && presetOrNull.id) || store.uid('pre'),
+        type: type,
+        name: name,
+        category: (m.root.querySelector('#p-category').value || '').trim() || (isInput ? 'Band / Live' : 'Monitors'),
+        description: (m.root.querySelector('#p-desc').value || '').trim(),
+        channels: channels
+      });
+
+      m.close();
+      ui.toast('Saved preset "' + name + '"', 'ok');
+      if (typeof onSaved === 'function') onSaved(saved);
+    });
+  }
+
+  /* Quick "Save current channels as new preset" dialog */
+  function openSaveAsModal(type, currentChannels, onSaved) {
+    if (!Array.isArray(currentChannels) || !currentChannels.length) {
+      ui.toast('No channels configured to save as preset', 'danger');
+      return;
+    }
+    const cleanChannels = JSON.parse(JSON.stringify(currentChannels));
+    openEditorModal({
+      id: null,
+      type: type,
+      name: '',
+      category: type === 'input' ? 'Band / Live' : 'Monitors',
+      description: '',
+      channels: cleanChannels
+    }, type, onSaved);
+  }
+
+  /* Helper to format and advance time (HH:MM) */
+  function addMinutesToTime(timeStr, mins) {
+    if (!timeStr || typeof timeStr !== 'string' || timeStr.indexOf(':') === -1) timeStr = '19:30';
+    let [h, m] = timeStr.split(':').map(Number);
+    if (isNaN(h)) h = 19;
+    if (isNaN(m)) m = 30;
+    const total = (h * 60 + m + (mins || 0)) % (24 * 60);
+    const newH = Math.floor(total / 60);
+    const newM = total % 60;
+    return (newH < 10 ? '0' : '') + newH + ':' + (newM < 10 ? '0' : '') + newM;
+  }
+
+  /* Helper to extract and synchronize artists from an Advancing Event into a Patch Sheet */
+  function syncArtistsFromEvent(targetSheet, eventRecord, isAuto) {
+    if (!targetSheet || !eventRecord) return false;
+    const schedule = Array.isArray(eventRecord.schedule_items)
+      ? eventRecord.schedule_items
+      : (Array.isArray(eventRecord.scheduleItems) ? eventRecord.scheduleItems : []);
+    const scheduleActs = schedule.filter((it) => it && (it.type === 'act' || (it.customName && it.customName.trim())));
+
+    const houseAct = (targetSheet.acts || []).find((a) => a.id === 'act-house') || { id: 'act-house', name: 'House / Venue Core', color: 'slate' };
+    
+        // Sync master global channels into House Act
+    const techReqs = eventRecord.tech_requirements || eventRecord.techRequirements || {};
+    const hasGlobal = techReqs.channel_list && (techReqs.channel_list.inputs || techReqs.channel_list.outputs);
+    if (hasGlobal) {
+      if (Array.isArray(techReqs.channel_list.inputs)) {
+        houseAct.channelInputs = JSON.parse(JSON.stringify(techReqs.channel_list.inputs));
+      }
+      if (Array.isArray(techReqs.channel_list.outputs)) {
+        houseAct.channelOutputs = JSON.parse(JSON.stringify(techReqs.channel_list.outputs));
+      }
+    }
+
+    if (!scheduleActs.length && (!houseAct.channelInputs || !houseAct.channelInputs.length)) return false;
+
+    const newActs = [houseAct];
+
+    scheduleActs.forEach((it, idx) => {
+      const actName = (it.customName && it.customName.trim()) ? it.customName.trim() : (it.label || ('Act ' + (idx + 1)));
+      const existing = (targetSheet.acts || []).find((a) => a.name && a.name.toLowerCase().trim() === actName.toLowerCase());
+      const colObj = existing ? { id: existing.color } : (ACT_COLORS[(idx + 1) % ACT_COLORS.length] || ACT_COLORS[0]);
+
+      newActs.push({
+        id: (existing && existing.id) || ('act-' + (idx + 1) + '-' + Date.now().toString(36)),
+        name: actName,
+        color: colObj.id,
+        stageTime: it.time || '',
+        duration: it.duration || '',
+        // If a global patch sheet exists, ignore the artist specific custom lists
+        channelInputs: hasGlobal ? [] : (Array.isArray(it.channelInputs) ? JSON.parse(JSON.stringify(it.channelInputs)) : []),
+        channelOutputs: hasGlobal ? [] : (Array.isArray(it.channelOutputs) ? JSON.parse(JSON.stringify(it.channelOutputs)) : [])
+      });
+    });
+
+    targetSheet.acts = newActs;
+    return true;
+  }
+
+  /* ---- Full Patch Sheet Builder & Editor Modal with Signal Flow ---- */
+  function openPatchSheetModal(sheetOrNull, onSaved, initialStep) { injectMicDatalist();
+    const isEdit = !!(sheetOrNull && sheetOrNull.id);
+    let sheet = sheetOrNull ? JSON.parse(JSON.stringify(sheetOrNull)) : {
+      id: store.uid('ps'),
+      name: '',
+      eventId: null,
+      eventName: '',
+      space: 'Main Hall',
+      date: new Date().toISOString().slice(0, 10),
+      notes: '',
+      homeRun: Object.assign({}, DEFAULT_HOME_RUN),
+      acts: [
+        { id: 'act-house', name: 'House / Venue Core', color: 'slate' },
+        { id: 'act-1', name: 'Headliner', color: 'purple' }
+      ],
+      patchPoints: JSON.parse(JSON.stringify(DEFAULT_PATCH_POINTS)),
+      stageboxes: [
+        {
+          id: store.uid('sb'),
+          letter: 'A',
+          name: 'Stage Left Sub-Snake',
+          location: 'Stage Left',
+          capacity: 8,
+          outCapacity: 4,
+          channels: Array.from({ length: 8 }, (_, i) => ({
+            socket: i + 1,
+            actId: 'act-house',
+            instrument: '',
+            mic: '',
+            phantom: false,
+            repatch: false,
+            repatchTo: '',
+            homeRunCh: i + 1
+          })),
+          outputs: Array.from({ length: 4 }, (_, i) => ({
+            socket: i + 1,
+            destination: ''
+          }))
+        }
+      ]
+    };
+
+    if (!sheet.homeRun) sheet.homeRun = Object.assign({}, DEFAULT_HOME_RUN);
+    if (!Array.isArray(sheet.acts)) sheet.acts = [];
+    if (!Array.isArray(sheet.stageboxes)) sheet.stageboxes = [];
+    if (!Array.isArray(sheet.patchPoints)) sheet.patchPoints = JSON.parse(JSON.stringify(DEFAULT_PATCH_POINTS));
+    if (!sheet.actMutes) sheet.actMutes = {};
+
+    const events = (RMTP.getUpcomingActiveEvents ? RMTP.getUpcomingActiveEvents(sheet.eventId) : (store.all('advancing') || []));
+
+    // If an event is pre-linked and sheet acts are default or empty, auto-sync from schedule
+    if (sheet.eventId) {
+      const linkedEvent = events.find((e) => e.id === sheet.eventId);
+      if (linkedEvent) {
+        const hasCustomActs = sheet.acts.some((a) => a.id !== 'act-house' && a.name && a.name !== 'Headliner' && a.name !== 'Act 1');
+        if (!hasCustomActs) {
+          syncArtistsFromEvent(sheet, linkedEvent, true);
+        }
+      }
+    }
+
+    function applyVenueRoomIO(spaceName, updateDOM = false) {
+      let v = store.find('venues', spaceName);
+      if (!v) {
+        v = {
+          name: spaceName,
+          audio: {
+            inputChannels: 48,
+            outputChannels: 24,
+            prefix: 'HR',
+            mixingDeskProtocol: 'Dante',
+            stageboxes: [
+              { letter: 'A', name: 'SL Rack', location: 'Stage Left', sockets: 16 }
+            ]
+          }
+        };
+      }
+      if (v && v.audio) {
+        sheet.homeRun = {
+          name: v.name + ' Main I/O',
+          type: 'Digital Stage Rack (' + (v.audio.mixingDeskProtocol || 'Dante') + ')',
+          location: 'Venue I/O',
+          inputChannels: parseInt(v.audio.inputChannels, 10) || 32,
+          localInputChannels: parseInt(v.audio.localInputChannels, 10) || 0,
+          outputChannels: parseInt(v.audio.outputChannels, 10) || 16,
+          localOutputChannels: parseInt(v.audio.localOutputChannels, 10) || 0,
+          prefix: v.audio.prefix || 'HR',
+          notes: 'Inherited from ' + v.name + ' setup'
+        };
+        if (Array.isArray(v.audio.stageboxes) && v.audio.stageboxes.length > 0) {
+          sheet.stageboxes = v.audio.stageboxes.map((sb, sbIdx) => {
+            const cap = parseInt(sb.analogIn || sb.sockets || 16, 10);
+            return {
+              id: store.uid ? store.uid('sb') : 'sb-' + Math.random().toString(36).substr(2, 6),
+              letter: sb.letter || String.fromCharCode(65 + sbIdx),
+              name: sb.name || 'Stagebox',
+              location: sb.location || 'Stage',
+              capacity: cap,
+              outCapacity: parseInt(sb.analogOut || 0, 10),
+              channels: Array.from({ length: cap }, (_, i) => ({
+                socket: i + 1,
+                actId: 'act-house',
+                instrument: '',
+                mic: '',
+                phantom: false,
+                repatch: false,
+                repatchTo: '',
+                homeRunCh: i + 1
+              })),
+              outputs: Array.from({ length: parseInt(sb.analogOut || 0, 10) }, (_, i) => ({
+                socket: i + 1,
+                destination: ''
+              }))
+            };
+          });
+        }
+        if (updateDOM && m && m.root) {
+          const els = {
+            '#ps-hr-name': sheet.homeRun.name,
+            '#ps-hr-type': sheet.homeRun.type,
+            '#ps-hr-inputs': sheet.homeRun.inputChannels,
+            '#ps-hr-outputs': sheet.homeRun.outputChannels,
+            '#ps-hr-prefix': sheet.homeRun.prefix,
+            '#ps-hr-location': sheet.homeRun.location
+          };
+          for (const k in els) {
+            const el = m.root.querySelector(k);
+            if (el) el.value = els[k];
+          }
+          if (typeof renderStageboxes === 'function') renderStageboxes();
+          if (typeof renderSignalFlow === 'function') renderSignalFlow();
+          if (typeof renderRepatches === 'function') renderRepatches();
+          if (typeof renderMasterSchedule === 'function') renderMasterSchedule();
+          if (typeof renderMixingIOSummary === 'function') renderMixingIOSummary();
+        }
+      }
+    }
+
+    if (!isEdit) {
+      applyVenueRoomIO(sheet.space);
+    }
+
+    let currentStep = initialStep ? Math.max(1, Math.min(5, parseInt(initialStep, 10))) : 1;
+    let signalFlowFilter = 'all'; // 'all', 'patched', 'spare', 'collisions'
+
+    const m = ui.modal({
+      title: isEdit ? 'Edit Event Patch Sheet' : 'New Event Patch Sheet Builder',
+      size: 'md:max-w-5xl',
+      body:
+        '<div class="grid gap-5 text-xs">' +
+          // Multi-Step Navigation Bar
+          '<div class="flex items-center gap-1.5 p-1.5 rounded-xl bg-panel2/80 border border-line overflow-x-auto no-scrollbar shadow-2xs">' +
+            '<button type="button" data-ps-tab="1" class="flex-1 min-w-[130px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' + (currentStep === 1 ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' + (currentStep === 1 ? 'bg-accent-ink text-accent' : 'bg-panel2 border border-line text-muted') + '">1</span>' +
+              '<span>Event & Acts</span>' +
+            '</button>' +
+            '<button type="button" data-ps-tab="2" class="flex-1 min-w-[150px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' + (currentStep === 2 ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' + (currentStep === 2 ? 'bg-accent-ink text-accent' : 'bg-panel2 border border-line text-muted') + '">2</span>' +
+              '<span>Stageboxes & Drops</span>' +
+            '</button>' +
+            '<button type="button" data-ps-tab="3" class="flex-1 min-w-[170px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' + (currentStep === 3 ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' + (currentStep === 3 ? 'bg-accent-ink text-accent' : 'bg-panel2 border border-line text-muted') + '">3</span>' +
+              '<span>⚡ Signal Flow & Home Run</span>' +
+            '</button>' +
+            '<button type="button" data-ps-tab="4" class="flex-1 min-w-[150px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' + (currentStep === 4 ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' + (currentStep === 4 ? 'bg-accent-ink text-accent' : 'bg-panel2 border border-line text-muted') + '">4</span>' +
+              '<span>Repatches & Run Order</span>' +
+            '</button>' +
+            '<button type="button" data-ps-tab="5" class="flex-1 min-w-[150px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' + (currentStep === 5 ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              '<span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' + (currentStep === 5 ? 'bg-accent-ink text-accent' : 'bg-panel2 border border-line text-muted') + '">5</span>' +
+              '<span>Mixing IO Summary</span>' +
+            '</button>' +
+          '</div>' +
+
+          // STEP 1: EVENT DETAILS & ACTS
+          '<div id="ps-step-1" class="' + (currentStep === 1 ? 'grid gap-5' : 'hidden') + '">' +
+            // Header Form
+            '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl bg-panel2/40 border border-line">' +
+              '<div class="sm:col-span-2">' +
+                '<label class="block text-xs font-semibold mb-1">Patch Sheet Name *</label>' +
+                '<input id="ps-name" class="field font-semibold" value="' + ui.esc(sheet.name || '') + '" placeholder="e.g. Festival Saturday Patch Plan, Jazz Gala Stage Patch" />' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-xs font-semibold mb-1">Linked Event (Bi-directional Sync)</label>' +
+                '<select id="ps-event" class="field font-semibold text-accent">' +
+                  '<option value="">(Standalone Patch Sheet \u2014 Not Linked)</option>' +
+                  events.map((e) => '<option value="' + ui.esc(e.id) + '" ' + (e.id === sheet.eventId ? 'selected' : '') + '>' + ui.esc(e.date ? ui.formatDate(e.date) : 'TBC') + ' \u2014 ' + ui.esc(e.name) + ' (' + ui.esc(Array.isArray(e.space) ? e.space.join(', ') : (e.space || '')) + ')</option>').join('') +
+                '</select>' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-xs font-semibold mb-1">Space / Venue</label>' +
+                '<select id="ps-space" class="field text-accent font-semibold">' +
+                  RMTP.SPACES.map((s) => '<option ' + (s === sheet.space ? 'selected' : '') + '>' + s + '</option>').join('') +
+                '</select>' +
+              '</div>' +
+              '<div class="sm:col-span-3 mt-2">' +
+                '<div class="flex items-center justify-between pb-2 border-b border-line/60 flex-wrap gap-2">' +
+                  '<div class="flex items-center gap-2">' +
+                    '<span class="text-accent">' + ui.icon('sliders', 'w-4 h-4') + '</span>' +
+                    '<span class="font-bold text-ink uppercase tracking-wider text-xs">Room I/O & Home Run Trunk</span>' +
+                  '</div>' +
+                  '<div class="flex items-center gap-2">' +
+                    '<button type="button" id="btn-save-room-io" class="btn btn-ghost !py-1 !px-2.5 text-xs text-accent font-semibold flex items-center gap-1.5 border border-accent/30 hover:bg-accent/10" title="Pull Home Run & Stageboxes from Venue Settings">' +
+                      ui.icon('download', 'w-3.5 h-3.5') + '<span>Pull Venue I/O</span>' +
+                    '</button>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-3">' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Home Run Name</label>' +
+                    '<input id="ps-hr-name" class="field !py-1.5 !px-2 text-xs font-semibold" value="' + ui.esc(sheet.homeRun.name || 'Main Stage Rack') + '" placeholder="e.g. Main Stage Rack (DL32)" />' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Rack / Trunk Type</label>' +
+                    '<select id="ps-hr-type" class="field !py-1.5 !px-2 text-xs">' +
+                      HOME_RUN_TYPES.map((t) => '<option ' + (t === sheet.homeRun.type ? 'selected' : '') + '>' + t + '</option>').join('') +
+                    '</select>' +
+                  '</div>' +
+                  '<div class="grid grid-cols-2 gap-2">' +
+                    '<div><label class="block text-[11px] font-semibold text-muted mb-1">Inputs</label><input id="ps-hr-inputs" type="number" min="1" max="128" class="field !py-1.5 !px-1.5 text-xs font-mono font-bold text-center" value="' + (sheet.homeRun.inputChannels || 32) + '" /></div>' +
+                    '<div><label class="block text-[11px] font-semibold text-muted mb-1">Outputs</label><input id="ps-hr-outputs" type="number" min="0" max="64" class="field !py-1.5 !px-1.5 text-xs font-mono font-bold text-center" value="' + (sheet.homeRun.outputChannels || 16) + '" /></div>' +
+                  '</div>' +
+                  '<div class="grid grid-cols-2 gap-2">' +
+                    '<div><label class="block text-[11px] font-semibold text-muted mb-1">Prefix</label><input id="ps-hr-prefix" class="field !py-1.5 !px-1.5 text-xs font-mono uppercase font-bold text-center" value="' + ui.esc(sheet.homeRun.prefix || 'HR') + '" /></div>' +
+                    '<div><label class="block text-[11px] font-semibold text-muted mb-1">Location</label><select id="ps-hr-location" class="field !py-1.5 !px-1.5 text-xs">' + STAGE_LOCATIONS.map((loc) => '<option ' + (loc === sheet.homeRun.location ? 'selected' : '') + '>' + loc + '</option>').join('') + '</select></div>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-xs font-semibold mb-1">Date</label>' +
+                '<input id="ps-date" type="date" class="field font-mono" value="' + ui.esc(sheet.date || '') + '" />' +
+              '</div>' +
+              '<div>' +
+                '<label class="block text-xs font-semibold mb-1">Notes / Changeover Strategy</label>' +
+                '<input id="ps-notes" class="field" value="' + ui.esc(sheet.notes || '') + '" placeholder="e.g. 15-min rapid changeover between acts" />' +
+              '</div>' +
+            '</div>' +
+
+            // Bi-directional Event & Schedule Synchronization Banner
+            '<div id="ps-event-sync-banner"></div>' +
+
+            // Acts & Color Legend Management
+            '<div class="p-3.5 rounded-xl bg-panel border border-line flex flex-col gap-3 shadow-xs">' +
+              '<div class="flex items-center justify-between pb-2 border-b border-line/60 flex-wrap gap-2">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-accent">' + ui.icon('users', 'w-4 h-4') + '</span>' +
+                  '<span class="font-bold text-ink uppercase tracking-wider text-xs">Acts & Color Coding</span>' +
+                  '<span class="text-[11px] text-muted">(Used to color-code channel routing and generate event schedule items)</span>' +
+                '</div>' +
+                '<button type="button" id="btn-add-act" class="btn btn-ghost !py-1 !px-2.5 text-xs text-accent flex items-center gap-1 font-semibold">' +
+                  ui.icon('plus', 'w-3.5 h-3.5') + '<span>Add Act</span>' +
+                '</button>' +
+              '</div>' +
+              '<div id="ps-acts-list" class="flex flex-wrap gap-2"></div>' +
+            '</div>' +
+          '</div>' +
+
+          // STEP 2: STAGEBOXES & SUB-SNAKES
+          '<div id="ps-step-2" class="' + (currentStep === 2 ? 'grid gap-4' : 'hidden') + '">' +
+            '<div class="flex items-center justify-between flex-wrap gap-2">' +
+              '<div class="flex items-center gap-2">' +
+                '<span class="text-accent">' + ui.icon('box', 'w-4 h-4') + '</span>' +
+                '<span class="font-bold text-ink uppercase tracking-wider text-xs">Stageboxes & Sub-Snakes Layout</span>' +
+                '<span id="ps-stagebox-count-badge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-panel2 border border-line font-semibold"></span>' +
+              '</div>' +
+              '<div class="flex items-center gap-1.5 flex-wrap">' +
+                '<span class="text-[11px] text-muted mr-1">Quick Add:</span>' +
+                '<button type="button" data-add-sb-preset="4" class="btn btn-ghost !py-1 !px-2 text-xs border border-line">+ 4 Ch</button>' +
+                '<button type="button" data-add-sb-preset="8" class="btn btn-ghost !py-1 !px-2 text-xs border border-line">+ 8 Ch</button>' +
+                '<button type="button" data-add-sb-preset="16" class="btn btn-ghost !py-1 !px-2 text-xs border border-line">+ 16 Ch</button>' +
+                '<button type="button" id="btn-add-local-sb" class="btn btn-ghost !py-1 !px-2.5 text-xs text-accent border border-line flex items-center gap-1 font-semibold" title="Add stagebox representing Local I/O from the Mixing Console">' +
+                  ui.icon('plus', 'w-3 h-3') + '<span>Local Desk I/O</span>' +
+                '</button>' +
+                '<button type="button" id="btn-add-custom-sb" class="btn btn-primary !py-1 !px-2.5 text-xs flex items-center gap-1 font-semibold">' +
+                  ui.icon('plus', 'w-3.5 h-3.5') + '<span>Custom Box</span>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex items-start gap-3 p-3.5 bg-accent/5 border border-accent/20 rounded-lg text-xs">' +
+              '<div class="mt-0.5 text-accent">' + ui.icon('info', 'w-4 h-4') + '</div>' +
+              '<div>' +
+                '<p class="font-bold text-accent mb-0.5">Festival Patching Strategy</p>' +
+                '<p class="text-muted leading-relaxed mb-1.5">For channels shared across all artists (like standard Drum Kits), set the Act to <strong class="text-ink">House / Venue Core</strong>.</p>' +
+                '<p class="text-muted leading-relaxed">If acts have different requirements (e.g. 2 vocal mics vs 3), assign the base sockets to the first act, then use the <strong><span class="text-accent">' + ui.icon('copy', 'w-3 h-3 inline-block relative -top-[1px]') + ' Add Changeover</span></strong> button to share that socket with the next act. For additional mics unique to later acts, just add a new socket and assign it directly to them.</p>' +
+              '</div>' +
+            '</div>' +
+            '<div id="ps-custom-channels-allocator"></div>' +
+            '<div id="ps-stageboxes-container" class="grid gap-4"></div>' +
+          '</div>' +
+
+          // STEP 3: SIGNAL FLOW & HOME RUN (MAIN I/O)
+          '<div id="ps-step-3" class="' + (currentStep === 3 ? 'grid gap-5' : 'hidden') + '">' +
+            // Health & Stats Bar
+            '<div id="ps-hr-health-bar" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>' +
+
+            // Action Bar & View Filter
+            '<div class="flex items-center justify-between flex-wrap gap-2 p-2 rounded-xl bg-panel border border-line">' +
+              '<div class="flex items-center gap-1.5 flex-wrap">' +
+                '<button type="button" data-sf-filter="all" class="px-2.5 py-1 rounded-lg text-xs font-semibold border ' + (signalFlowFilter === 'all' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel border-line text-muted hover:text-ink') + '">All Channels</button>' +
+                '<button type="button" data-sf-filter="patched" class="px-2.5 py-1 rounded-lg text-xs font-semibold border ' + (signalFlowFilter === 'patched' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel border-line text-muted hover:text-ink') + '">Patched</button>' +
+                '<button type="button" data-sf-filter="spare" class="px-2.5 py-1 rounded-lg text-xs font-semibold border ' + (signalFlowFilter === 'spare' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel border-line text-muted hover:text-ink') + '">Spares / Open</button>' +
+                '<button type="button" data-sf-filter="collisions" class="px-2.5 py-1 rounded-lg text-xs font-semibold border ' + (signalFlowFilter === 'collisions' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel border-line text-muted hover:text-ink') + '">Collisions</button>' +
+              '</div>' +
+              '<div class="flex items-center gap-2">' +
+                '<button type="button" id="btn-hr-auto-patch" class="btn btn-ghost !py-1 !px-2.5 text-xs text-accent font-semibold flex items-center gap-1.5 border border-accent/30 hover:bg-accent/10" title="Auto patch all stageboxes in order into Home Run">' +
+                  ui.icon('sliders', 'w-3.5 h-3.5') + '<span>Auto-Patch Sockets</span>' +
+                '</button>' +
+                '<button type="button" id="btn-hr-clear-all" class="btn btn-ghost !py-1 !px-2.5 text-xs text-muted hover:text-danger font-medium flex items-center gap-1">' +
+                  ui.icon('trash', 'w-3.5 h-3.5') + '<span>Clear Mappings</span>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+
+            // Interactive Home Run Signal Flow Matrix
+            '<div id="ps-signal-flow-matrix" class="w-full"></div>' +
+
+            // Stagebox Quick-Patch Table Reference
+            '<div class="p-3.5 rounded-xl bg-panel border border-line flex flex-col gap-3 shadow-xs">' +
+              '<div class="flex items-center justify-between pb-2 border-b border-line/60">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-accent">' + ui.icon('box', 'w-4 h-4') + '</span>' +
+                  '<span class="font-bold text-ink uppercase tracking-wider text-xs">Stagebox Sockets Destination Mapping Table</span>' +
+                '</div>' +
+              '</div>' +
+              '<div id="ps-stagebox-routing-table" class="overflow-x-auto"></div>' +
+            '</div>' +
+          '</div>' +
+
+          // STEP 4: REPATCHES & MASTER SCHEDULE
+          '<div id="ps-step-4" class="' + (currentStep === 4 ? 'grid gap-5' : 'hidden') + '">' +
+            // Live Repatch Checklist Preview
+            '<div class="p-3.5 rounded-xl bg-panel2/50 border border-line flex flex-col gap-3">' +
+              '<div class="flex items-center justify-between pb-2 border-b border-line/60">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-warning">' + ui.icon('alert', 'w-4 h-4') + '</span>' +
+                  '<span class="font-bold text-ink uppercase tracking-wider text-xs">Changeover Repatch Summary</span>' +
+                  '<span id="ps-repatch-count-badge" class="font-mono text-[11px] px-2 py-0.5 rounded bg-panel border border-line text-warning font-bold"></span>' +
+                '</div>' +
+              '</div>' +
+              '<div id="ps-repatch-summary-list" class="grid gap-2 text-xs"></div>' +
+            '</div>' +
+
+            // End-to-End Master Channel Map Preview
+            '<div class="p-3.5 rounded-xl bg-panel border border-line flex flex-col gap-3 shadow-xs">' +
+              '<div class="flex items-center justify-between pb-2 border-b border-line/60 flex-wrap gap-2">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-accent">' + ui.icon('sliders', 'w-4 h-4') + '</span>' +
+                  '<span class="font-bold text-ink uppercase tracking-wider text-xs">Master Home Run Signal Flow Schedule</span>' +
+                '</div>' +
+                '<button type="button" id="btn-print-from-modal" class="btn btn-ghost !py-1 !px-2.5 text-xs text-ink flex items-center gap-1 font-semibold border border-line">' +
+                  ui.icon('print', 'w-3.5 h-3.5') + '<span>Print Full PDF</span>' +
+                '</button>' +
+              '</div>' +
+              '<div id="ps-step-5" class="' + (currentStep === 5 ? 'grid gap-5' : 'hidden') + '">' +
+            '<div class="p-3.5 rounded-xl bg-panel border border-line flex flex-col gap-3 shadow-xs">' +
+              '<div class="flex items-center justify-between pb-2 border-b border-line/60 flex-wrap gap-2">' +
+                '<div class="flex items-center gap-2">' +
+                  '<span class="text-accent">' + ui.icon('grid', 'w-4 h-4') + '</span>' +
+                  '<span class="font-bold text-ink uppercase tracking-wider text-xs">Mixing Console IO Summary</span>' +
+                '</div>' +
+                '<div class="text-[10px] text-muted max-w-sm text-right">Click a cell to toggle whether an act is using that input. This updates the running order for the engineers.</div>' +
+              '</div>' +
+              '<div id="ps-mixing-io-preview" class="overflow-x-auto"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>',
+      footer:
+        '<button class="btn btn-ghost" data-cancel>Cancel</button>' +
+        '<div class="flex items-center gap-2">' +
+          '<button type="button" id="btn-ps-prev" class="btn btn-ghost text-xs font-semibold" style="' + (currentStep === 1 ? 'display:none;' : '') + '">&larr; Previous Step</button>' +
+          '<button type="button" id="btn-ps-next" class="btn btn-ghost text-xs font-semibold border border-line" style="' + (currentStep === 5 ? 'display:none;' : '') + '">Next Step &rarr;</button>' +
+          '<button class="btn btn-primary font-semibold" id="btn-save-sheet">Save Patch Sheet</button>' +
+        '</div>'
+    });
+
+    function setStep(step) {
+      currentStep = Math.max(1, Math.min(5, step));
+
+      // Update Tab Navigation Active Styles
+      m.root.querySelectorAll('[data-ps-tab]').forEach((btn) => {
+        const s = +btn.getAttribute('data-ps-tab');
+        const isActive = (s === currentStep);
+        btn.className = 'flex-1 min-w-[130px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ' +
+          (isActive ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel');
+        const numBadge = btn.querySelector('span:first-child');
+        if (numBadge) {
+          numBadge.className = 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono ' +
+            (isActive ? 'bg-accent-ink text-accent font-bold' : 'bg-panel2 border border-line text-muted');
+        }
+      });
+
+      // Show/Hide step panels
+      for (let i = 1; i <= 5; i++) {
+        const p = m.root.querySelector('#ps-step-' + i);
+        if (p) {
+          if (i === currentStep) {
+            p.classList.remove('hidden');
+            p.classList.add('grid');
+          } else {
+            p.classList.add('hidden');
+            p.classList.remove('grid');
+          }
+        }
+      }
+
+      // Update Navigation Buttons
+      const prevBtn = m.root.querySelector('#btn-ps-prev');
+      const nextBtn = m.root.querySelector('#btn-ps-next');
+      if (prevBtn) {
+        prevBtn.style.display = (currentStep === 1 ? 'none' : 'inline-flex');
+        const prevLabels = ['', '', 'Event & Acts', 'Stageboxes & Drops', '⚡ Signal Flow', 'Repatches & Summary'];
+        prevBtn.innerHTML = '&larr; Back to ' + (prevLabels[currentStep] || 'Previous');
+      }
+      if (nextBtn) {
+        nextBtn.style.display = (currentStep === 5 ? 'none' : 'inline-flex');
+        const nextLabels = ['', 'Stageboxes & Drops &rarr;', '⚡ Signal Flow &rarr;', 'Repatches & Summary &rarr;', 'IO Summary &rarr;', ''];
+        nextBtn.innerHTML = 'Next: ' + (nextLabels[currentStep] || 'Next &rarr;');
+      }
+
+      // Refresh respective view data
+      if (currentStep === 1) {
+        renderEventSyncBanner();
+        renderActs();
+      }
+      if (currentStep === 2) renderStageboxes();
+      if (currentStep === 3) renderSignalFlow();
+      if (currentStep === 4) {
+        renderRepatches();
+        renderMasterSchedule();
+      }
+      if (currentStep === 5) {
+        if (typeof renderMixingIOSummary === 'function') renderMixingIOSummary();
+      }
+    }
+
+    // Step navigation event wireup
+    m.root.querySelectorAll('[data-ps-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setStep(+btn.getAttribute('data-ps-tab'));
+      });
+    });
+
+    const prevBtn = m.root.querySelector('#btn-ps-prev');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        setStep(currentStep - 1);
+      });
+    }
+
+    const nextBtn = m.root.querySelector('#btn-ps-next');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        setStep(currentStep + 1);
+      });
+    }
+
+    function nextLetter() {
+      const letters = sheet.stageboxes.map((s) => s.letter).filter(Boolean);
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      for (let i = 0; i < alphabet.length; i++) {
+        if (!letters.includes(alphabet[i])) return alphabet[i];
+      }
+      return 'X' + (sheet.stageboxes.length + 1);
+    }
+
+    function renderEventSyncBanner() {
+      const bannerEl = m.root.querySelector('#ps-event-sync-banner');
+      if (!bannerEl) return;
+      const evId = sheet.eventId;
+      if (!evId) {
+        bannerEl.innerHTML =
+          '<div class="p-2.5 rounded-lg bg-panel2/40 border border-dashed border-line text-muted text-xs flex items-center justify-between gap-2">' +
+            '<span class="flex items-center gap-1.5 font-medium">' + ui.icon('calendar', 'w-3.5 h-3.5 text-muted') + ' Select a linked event above to enable bi-directional artist and schedule synchronization.</span>' +
+          '</div>';
+        return;
+      }
+      const ev = events.find((e) => e.id === evId);
+      if (!ev) {
+        bannerEl.innerHTML = '';
+        return;
+      }
+      const schedule = Array.isArray(ev.schedule_items) ? ev.schedule_items : (Array.isArray(ev.scheduleItems) ? ev.scheduleItems : []);
+      const scheduleActs = schedule.filter((it) => it && (it.type === 'act' || (it.customName && it.customName.trim())));
+
+      if (scheduleActs.length > 0) {
+        bannerEl.innerHTML =
+          '<div class="p-3 rounded-xl bg-accent/10 border border-accent/30 text-ink text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">' +
+            '<div class="flex items-start gap-2.5">' +
+              '<span class="text-accent shrink-0 mt-0.5">' + ui.icon('check', 'w-4 h-4') + '</span>' +
+              '<div>' +
+                '<div class="flex items-center gap-2 flex-wrap">' +
+                  '<span class="font-bold text-accent">Event Advancing Linked:</span> ' +
+                  '<span class="font-semibold">' + scheduleActs.length + ' Act' + (scheduleActs.length === 1 ? '' : 's') + ' in schedule</span>' +
+                '</div>' +
+                '<div class="text-[11px] text-muted flex items-center gap-1.5 flex-wrap mt-1">' +
+                  scheduleActs.map((a) => '<span class="px-1.5 py-0.5 rounded bg-panel font-mono border border-line text-ink font-semibold flex items-center gap-1">' + ui.esc(a.customName || a.label || 'Act') + (a.time ? '<span class="text-accent font-bold">@' + ui.esc(a.time) + '</span>' : '') + '</span>').join('') +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="flex items-center gap-1.5 shrink-0">' +
+              '<button type="button" id="btn-pull-artists-from-event" class="btn btn-ghost !py-1 !px-2.5 text-xs text-accent font-semibold flex items-center gap-1 border border-accent/40 bg-panel hover:bg-accent/20 shadow-2xs">' +
+                ui.icon('refresh', 'w-3.5 h-3.5') + '<span>Pull Artists from Schedule</span>' +
+              '</button>' +
+            '</div>' +
+          '</div>';
+      } else {
+        bannerEl.innerHTML =
+          '<div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-ink text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">' +
+            '<div class="flex items-center gap-2.5">' +
+              '<span class="text-amber-500 shrink-0">' + ui.icon('info', 'w-4 h-4') + '</span>' +
+              '<div>' +
+                '<span class="font-bold text-amber-500">No Schedule Items in Event:</span> ' +
+                '<span class="text-muted ml-1">Saving this patch sheet will automatically generate ' + Math.max(1, sheet.acts.filter((a) => a.id !== 'act-house').length) + ' schedule set piece(s) and changeovers in the Advancing schedule.</span>' +
+              '</div>' +
+            '</div>' +
+            '<span class="text-[11px] font-mono px-2 py-0.5 rounded bg-panel border border-line text-muted shrink-0 font-semibold">Auto-generate on save</span>' +
+          '</div>';
+      }
+
+      const pullBtn = bannerEl.querySelector('#btn-pull-artists-from-event');
+      if (pullBtn) {
+        pullBtn.addEventListener('click', () => {
+          syncArtistsFromEvent(sheet, ev, false);
+          renderActs();
+          renderStageboxes();
+          renderEventSyncBanner();
+          ui.toast('Synchronized artists and master channels from ' + ev.name, 'ok');
+        });
+      }
+    }
+
+    function renderActs() {
+      const actsEl = m.root.querySelector('#ps-acts-list');
+      if (!actsEl) return;
+      actsEl.innerHTML = sheet.acts.map((act, idx) => {
+        const col = getActColorObj(act.color);
+        const stageTimeBadge = act.stageTime ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-panel border border-line text-accent shadow-2xs" title="Stage time from Advancing schedule">' + ui.esc(act.stageTime) + '</span>' : '';
+        return (
+          '<div class="flex items-center gap-1.5 p-1.5 rounded-lg border ' + col.border + ' ' + col.bg + ' text-xs shadow-2xs">' +
+            '<span class="w-3 h-3 rounded-full shrink-0" style="background:' + col.hex + '"></span>' +
+            '<input data-act-name="' + idx + '" class="bg-transparent border-none font-semibold text-ink text-xs focus:ring-0 focus:outline-none p-0 w-32" value="' + ui.esc(act.name) + '" placeholder="Act name\u2026" />' +
+            stageTimeBadge +
+            '<select data-act-color="' + idx + '" class="bg-panel text-[11px] rounded border border-line p-0.5">' +
+              ACT_COLORS.map((c) => '<option value="' + c.id + '" ' + (c.id === act.color ? 'selected' : '') + '>' + c.label + '</option>').join('') +
+            '</select>' +
+            (sheet.acts.length > 1 ? '<button type="button" data-del-act="' + idx + '" class="text-muted hover:text-danger p-0.5">' + ui.icon('x', 'w-3 h-3') + '</button>' : '') +
+          '</div>'
+        );
+      }).join('');
+
+      actsEl.querySelectorAll('[data-act-name]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          sheet.acts[+inp.getAttribute('data-act-name')].name = inp.value;
+        });
+      });
+      actsEl.querySelectorAll('[data-act-color]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          sheet.acts[+sel.getAttribute('data-act-color')].color = sel.value;
+          renderActs();
+        });
+      });
+      actsEl.querySelectorAll('[data-del-act]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = +btn.getAttribute('data-del-act');
+          sheet.acts.splice(idx, 1);
+          renderActs();
+        });
+      });
+    }
+
+    function renderStageboxes() {
+      // Render Custom Channel Allocator
+      const allocatorEl = m.root.querySelector('#ps-custom-channels-allocator');
+      if (allocatorEl) {
+        let actsWithChannels = (sheet.acts || []).filter(a => a.channelInputs && a.channelInputs.length > 0);
+        if (actsWithChannels.length > 0) {
+          allocatorEl.innerHTML = '<div class="p-3 mb-4 rounded-xl border border-accent/40 bg-accent/5 shadow-2xs">' +
+            '<div class="flex items-center gap-2 mb-2">' +
+              '<span class="text-accent">' + ui.icon('download', 'w-4 h-4') + '</span>' +
+              '<span class="font-bold text-accent uppercase tracking-wider text-[11px]">Event Channel Lists Available to Allocate</span>' +
+            '</div>' +
+            '<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-3">' +
+              actsWithChannels.map(act => {
+                const count = act.channelInputs.length;
+                return '<div class="p-2.5 rounded-lg border border-accent/20 bg-panel flex items-center justify-between">' +
+                  '<div>' +
+                    '<div class="font-bold text-xs text-ink">' + ui.esc(act.name) + '</div>' +
+                    '<div class="text-[10px] text-muted">' + count + ' Custom Channel' + (count !== 1 ? 's' : '') + '</div>' +
+                  '</div>' +
+                  '<button type="button" data-allocate-act="' + act.id + '" class="btn btn-ghost border border-line !py-1 !px-2 text-[10px] font-bold text-accent hover:bg-accent/10">Allocate as Stagebox &rarr;</button>' +
+                '</div>';
+              }).join('') +
+            '</div>' +
+          '</div>';
+
+          allocatorEl.querySelectorAll('[data-allocate-act]').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const actId = btn.getAttribute('data-allocate-act');
+              const act = sheet.acts.find(a => a.id === actId);
+              if (!act || !act.channelInputs) return;
+
+              const letter = nextLetter();
+              const inCap = Math.max(4, Math.ceil(act.channelInputs.length / 4) * 4); // round up to nearest 4
+              const outCap = 4; // default out capacity
+
+              const newBox = {
+                id: store.uid('sb'),
+                letter: letter,
+                name: act.name + ' Channels',
+                location: 'Stage Drop',
+                capacity: inCap,
+                outCapacity: outCap,
+                channels: act.channelInputs.map((c, i) => ({
+                  socket: i + 1,
+                  actId: act.id,
+                  instrument: c.instrument || '',
+                  mic: c.mic || '',
+                  phantom: !!c.phantom,
+                  repatch: false,
+                  repatchTo: '',
+                  homeRunCh: null
+                })),
+                outputs: Array.from({ length: outCap }, (_, i) => ({
+                  socket: i + 1,
+                  destination: ''
+                }))
+              };
+
+              // pad with empty sockets if needed
+              for (let i = act.channelInputs.length; i < inCap; i++) {
+                newBox.channels.push({
+                  socket: i + 1,
+                  actId: act.id,
+                  instrument: '',
+                  mic: '',
+                  phantom: false,
+                  repatch: false,
+                  repatchTo: '',
+                  homeRunCh: null
+                });
+              }
+
+              sheet.stageboxes.push(newBox);
+              
+              // Clear the channels from the act so they don't show up in the allocator anymore
+              // Or keep them but mark them as allocated? Let's just remove them from the act to show they've been consumed
+              act.channelInputs = [];
+              
+              ui.toast('Allocated ' + act.name + ' channels to Stagebox ' + letter, 'ok');
+              renderStageboxes();
+            });
+          });
+        } else {
+          allocatorEl.innerHTML = '';
+        }
+      }
+
+      const container = m.root.querySelector('#ps-stageboxes-container');
+      const countBadge = m.root.querySelector('#ps-stagebox-count-badge');
+      if (countBadge) countBadge.textContent = sheet.stageboxes.length + ' Boxes (' + sheet.stageboxes.reduce((acc, b) => acc + (b.channels ? b.channels.length : 0), 0) + ' Sockets)';
+      if (!container) return;
+
+      if (!sheet.stageboxes.length) {
+        container.innerHTML = '<div class="p-6 text-center text-muted italic bg-panel rounded-xl border border-line">No stageboxes configured. Click Quick Add (+ 4Ch, + 8Ch, + 16Ch) or Custom Box above to add a stagebox.</div>';
+        return;
+      }
+
+      const hr = getHomeRunConfig(sheet);
+      const totalHrInputs = Math.max(1, parseInt(hr.inputChannels, 10) || 32);
+      const hrPrefix = (hr.prefix || 'HR').trim();
+
+      container.innerHTML = sheet.stageboxes.map((box, sbIdx) => {
+        const sGroups = {};
+        (box.channels || []).forEach((ch, idx) => {
+          ch._originalIndex = idx;
+          if (!sGroups[ch.socket]) sGroups[ch.socket] = [];
+          sGroups[ch.socket].push(ch);
+        });
+        const socketGroups = Object.keys(sGroups).sort((a, b) => a - b).map(k => ({ socket: k, layers: sGroups[k] }));
+
+        return (
+          '<div class="panel p-4 rounded-xl border border-line bg-panel shadow-sm flex flex-col gap-3">' +
+            // Stagebox Header
+            '<div class="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-line/60">' +
+              '<div class="flex items-center gap-2.5 flex-wrap">' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<span class="text-[10px] font-bold text-muted uppercase">Box</span>' +
+                  '<input data-sb-letter="' + sbIdx + '" class="field !py-1 !px-2 text-xs font-bold text-center w-12 uppercase font-mono text-accent" value="' + ui.esc(box.letter || '') + '" />' +
+                '</div>' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<span class="text-[10px] font-bold text-muted uppercase">Name</span>' +
+                  '<input data-sb-name="' + sbIdx + '" class="field !py-1 !px-2 text-xs font-semibold w-44" value="' + ui.esc(box.name || '') + '" placeholder="e.g. Stage Left Snake" />' +
+                '</div>' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<span class="text-[10px] font-bold text-muted uppercase">Stage Loc</span>' +
+                  '<select data-sb-loc="' + sbIdx + '" class="field !py-1 !px-2 text-xs">' +
+                    STAGE_LOCATIONS.map((loc) => '<option ' + (loc === box.location ? 'selected' : '') + '>' + loc + '</option>').join('') +
+                  '</select>' +
+                '</div>' +
+              '</div>' +
+              '<div class="flex items-center gap-1.5">' +
+                '<button type="button" data-sb-add-ch="' + sbIdx + '" class="btn btn-ghost !py-1 !px-2 text-xs text-accent font-semibold flex items-center gap-1" title="Add Input Socket">' +
+                  ui.icon('plus', 'w-3 h-3') + '<span>In</span>' +
+                '</button>' +
+                '<button type="button" data-sb-add-out="' + sbIdx + '" class="btn btn-ghost !py-1 !px-2 text-xs text-accent font-semibold flex items-center gap-1" title="Add Output Socket">' +
+                  ui.icon('plus', 'w-3 h-3') + '<span>Out</span>' +
+                '</button>' +
+                '<button type="button" data-sb-del="' + sbIdx + '" class="btn btn-danger !p-1.5" title="Delete Stagebox">' +
+                  ui.icon('trash', 'w-3.5 h-3.5') +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+
+            // Sockets Mobile Cards View (Mobile vertical layout)
+            '<div class="md:hidden grid gap-2.5">' +
+              (!(box.channels && box.channels.length) ? (
+                '<div class="text-center py-4 text-muted italic bg-panel2/30 rounded-lg border border-line p-3">No sockets in this stagebox. Click "Add Input Socket" above.</div>'
+              ) : (
+                socketGroups.map((grp) => {
+                  return '<div class="grid gap-2 border-l-2 border-line/40 pl-2 ml-1 relative">' +
+                  grp.layers.map((ch, layerIdx) => {
+                    const chIdx = ch._originalIndex;
+                    const act = (sheet.acts || []).find((a) => a.id === ch.actId);
+                    const col = act ? getActColorObj(act.color) : ACT_COLORS[0];
+                    const hrCh = parseInt(ch.homeRunCh, 10);
+                    const isRepatch = layerIdx > 0;
+                    return (
+                    '<div class="p-3 rounded-lg bg-panel border ' + (isRepatch ? 'border-warning/40' : 'border-line') + ' shadow-2xs grid gap-2 relative">' +
+                      (isRepatch ? '<div class="absolute -left-[18px] top-[18px] text-accent/60">' + ui.icon('corner-down-right', 'w-4 h-4') + '</div>' : '') +
+                      // Mobile Header: Socket Badge, Act Selector, Phantom & Delete
+                      '<div class="flex items-center justify-between gap-2">' +
+                        '<div class="flex items-center gap-2">' +
+                          '<span class="font-mono font-bold text-xs px-2 py-0.5 rounded border ' + col.border + ' ' + col.bg + ' ' + col.text + '">' +
+                            (box.letter || '') + (grp.socket) +
+                          '</span>' +
+                          '<select data-ch-act="' + sbIdx + '-' + chIdx + '" class="bg-panel2 font-semibold text-xs rounded border border-line py-1 px-1.5 max-w-[130px]">' +
+                            sheet.acts.map((a) => '<option value="' + a.id + '" ' + (a.id === ch.actId ? 'selected' : '') + '>' + ui.esc(a.name) + '</option>').join('') +
+                          '</select>' +
+                        '</div>' +
+                        '<div class="flex items-center gap-1.5">' +
+                          '<label class="inline-flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded ' + (ch.phantom ? 'bg-danger/15 border border-danger/30' : 'bg-panel2 border border-line') + '" title="Toggle +48V Phantom Power">' +
+                            '<input type="checkbox" data-ch-48v="' + sbIdx + '-' + chIdx + '" class="w-3.5 h-3.5 accent-[var(--danger)] cursor-pointer" ' + (ch.phantom ? 'checked' : '') + ' />' +
+                            '<span class="text-[10px] font-bold ' + (ch.phantom ? 'text-danger' : 'text-muted') + '">+48V</span>' +
+                          '</label>' +
+                          '<button type="button" data-ch-del="' + sbIdx + '-' + chIdx + '" class="text-muted hover:text-danger p-1 rounded hover:bg-panel2" title="Remove socket">' +
+                            ui.icon('trash', 'w-3.5 h-3.5') +
+                          '</button>' +
+                        '</div>' +
+                      '</div>' +
+
+                      // Row 2: Instrument & Mic Inputs (Stacked / 2-col)
+                      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Instrument / Source</label>' +
+                          '<input data-ch-inst="' + sbIdx + '-' + chIdx + '" class="field !py-1 !px-2 text-xs bg-panel w-full" value="' + ui.esc(ch.instrument || '') + '" placeholder="e.g. Kick, Lead Vox, Key L" />' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Mic / DI Model</label>' +
+                          '<input list="inv-mic-suggestions" data-ch-mic="' + sbIdx + '-' + chIdx + '" class="field !py-1 !px-2 text-xs bg-panel w-full" value="' + ui.esc(ch.mic || '') + '" placeholder="e.g. SM58, B91A, Radial DI" />' +
+                        '</div>' +
+                      '</div>' +
+
+                      // Row 3: Home Run Target & Repatch / Swap
+                      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-line/60">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Connector</label>' +
+                          '<select data-ch-conn="' + sbIdx + '-' + chIdx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                            CONNECTOR_TYPES.map((c) => '<option ' + (c === ch.connectorType ? 'selected' : '') + '>' + c + '</option>').join('') +
+                          '</select>' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Home Run Target</label>' +
+                          '<select data-ch-hr="' + sbIdx + '-' + chIdx + '" class="bg-panel font-mono text-xs font-bold rounded border ' + (hrCh ? 'border-accent text-accent' : 'border-line text-muted') + ' py-1 px-1.5 w-full">' +
+                            '<option value="">(Unassigned / Drop)</option>' +
+                            Array.from({ length: totalHrInputs }, (_, i) => {
+                              const num = i + 1;
+                              const pad = num < 10 ? '0' + num : '' + num;
+                              return '<option value="' + num + '" ' + (hrCh === num ? 'selected' : '') + '>' + hrPrefix + ' ' + pad + '</option>';
+                            }).join('') +
+                          '</select>' +
+                        '</div>' +
+                      '</div>' +
+                      
+                      // Repatch Button
+                      '<div class="flex justify-end pt-1">' +
+                        '<button type="button" data-ch-duplicate="' + sbIdx + '-' + chIdx + '" class="btn btn-ghost !py-1 !px-2.5 text-[10px] text-accent font-semibold flex items-center gap-1 border border-accent/20">' +
+                          ui.icon('copy', 'w-3 h-3') + '<span>Add Changeover</span>' +
+                        '</button>' +
+                      '</div>' +
+                    '</div>'
+                  );
+                }).join('') +
+                '</div>';
+                }).join('')
+              )) +
+            '</div>' +
+
+            // Sockets Table View (Hidden on mobile, visible on md+ desktop)
+            '<div class="hidden md:block overflow-x-auto rounded-lg border border-line bg-panel2/30">' +
+              '<table class="w-full text-left text-xs border-collapse">' +
+                '<thead>' +
+                  '<tr class="border-b border-line bg-panel2/80 text-[10px] font-bold text-muted uppercase tracking-wider">' +
+                    '<th class="py-2 px-2.5 w-14 text-center">Skt</th>' +
+                    '<th class="py-2 px-2.5 w-28">Act</th>' +
+                    '<th class="py-2 px-2.5 min-w-[140px]">Instrument / Source</th>' +
+                    '<th class="py-2 px-2.5 min-w-[130px]">Mic / DI Model</th>' +
+                    '<th class="py-2 px-2 w-16 text-center">+48V</th>' +
+                    '<th class="py-2 px-2.5 min-w-[130px]">Connector</th>' +
+                    '<th class="py-2 px-2.5 min-w-[140px]">Home Run Target</th>' +
+                    '<th class="py-2 px-2.5 w-20 text-center" title="Add another act to this socket">Changeover</th>' +
+                    '<th class="py-2 px-2 w-10 text-center"></th>' +
+                  '</tr>' +
+                '</thead>' +
+                '<tbody class="divide-y divide-line/40">' +
+                  (!(box.channels && box.channels.length) ? (
+                    '<tr><td colspan="9" class="text-center py-4 text-muted italic">No sockets in this stagebox. Click "Add Input Socket" above.</td></tr>'
+                  ) : (
+                    socketGroups.map((grp) => {
+                      return grp.layers.map((ch, layerIdx) => {
+                        const chIdx = ch._originalIndex;
+                        const act = (sheet.acts || []).find((a) => a.id === ch.actId);
+                        const col = act ? getActColorObj(act.color) : ACT_COLORS[0];
+                        const hrCh = parseInt(ch.homeRunCh, 10);
+                        const isRepatch = layerIdx > 0;
+                        return (
+                          '<tr class="hover:bg-panel transition-colors group ' + (isRepatch ? 'bg-panel2/50 relative' : '') + '">' +
+                            // Skt Badge
+                            '<td class="py-2 px-2.5 text-center align-middle">' +
+                              (isRepatch ? 
+                                '<div class="flex items-center justify-center text-accent/60" title="Same socket '+(box.letter||'')+grp.socket+'">' + ui.icon('corner-down-right', 'w-4 h-4') + '</div>' : 
+                                '<span class="font-mono font-bold text-xs px-2 py-0.5 rounded border inline-block ' + col.border + ' ' + col.bg + ' ' + col.text + '">' +
+                                  (box.letter || '') + (grp.socket) +
+                                '</span>'
+                              ) +
+                            '</td>' +
+
+                            // Act Select
+                            '<td class="py-2 px-2.5 align-middle relative">' +
+                              (isRepatch ? '<div class="absolute left-0 top-0 bottom-0 w-0.5 bg-warning/50"></div>' : '') +
+                              '<select data-ch-act="' + sbIdx + '-' + chIdx + '" class="bg-panel font-medium text-[11px] rounded border border-line py-1 px-1.5 w-full">' +
+                                sheet.acts.map((a) => '<option value="' + a.id + '" ' + (a.id === ch.actId ? 'selected' : '') + '>' + ui.esc(a.name) + '</option>').join('') +
+                              '</select>' +
+                            '</td>' +
+
+                            // Instrument / Source
+                            '<td class="py-2 px-2.5 align-middle">' +
+                              '<input data-ch-inst="' + sbIdx + '-' + chIdx + '" class="field !py-1 !px-2 text-xs bg-panel w-full" value="' + ui.esc(ch.instrument || '') + '" placeholder="e.g. Kick, Lead Vox, Key L" />' +
+                            '</td>' +
+
+                            // Mic / DI
+                            '<td class="py-2 px-2.5 align-middle">' +
+                              '<input list="inv-mic-suggestions" data-ch-mic="' + sbIdx + '-' + chIdx + '" class="field !py-1 !px-2 text-xs bg-panel w-full" value="' + ui.esc(ch.mic || '') + '" placeholder="e.g. SM58, B91A, Radial DI" />' +
+                            '</td>' +
+
+                            // +48V Phantom
+                            '<td class="py-2 px-2 text-center align-middle">' +
+                              '<label class="inline-flex items-center justify-center gap-1 cursor-pointer py-1 select-none" title="Toggle +48V Phantom Power">' +
+                                '<input type="checkbox" data-ch-48v="' + sbIdx + '-' + chIdx + '" class="w-3.5 h-3.5 accent-[var(--danger)] cursor-pointer" ' + (ch.phantom ? 'checked' : '') + ' />' +
+                                '<span class="text-[10px] font-bold ' + (ch.phantom ? 'text-danger' : 'text-muted/60') + '">+48V</span>' +
+                              '</label>' +
+                            '</td>' +
+
+                            // Connector
+                            '<td class="py-2 px-2.5 align-middle">' +
+                              '<select data-ch-conn="' + sbIdx + '-' + chIdx + '" class="field !py-0.5 !px-1.5 text-[11px] w-full">' +
+                                CONNECTOR_TYPES.map((c) => '<option ' + (c === ch.connectorType ? 'selected' : '') + '>' + c + '</option>').join('') +
+                              '</select>' +
+                            '</td>' +
+
+                            // Home Run Target
+                            '<td class="py-2 px-2.5 align-middle">' +
+                              '<select data-ch-hr="' + sbIdx + '-' + chIdx + '" class="bg-panel font-mono text-[11px] font-bold rounded border ' + (hrCh ? 'border-accent text-accent' : 'border-line text-muted') + ' py-1 px-1.5 w-full">' +
+                                '<option value="">(Unassigned / Drop)</option>' +
+                                Array.from({ length: totalHrInputs }, (_, i) => {
+                                  const num = i + 1;
+                                  const pad = num < 10 ? '0' + num : '' + num;
+                                  return '<option value="' + num + '" ' + (hrCh === num ? 'selected' : '') + '>' + hrPrefix + ' ' + pad + '</option>';
+                                }).join('') +
+                              '</select>' +
+                            '</td>' +
+
+                            // Repatch Button
+                            '<td class="py-2 px-2.5 text-center align-middle">' +
+                              '<button type="button" data-ch-duplicate="' + sbIdx + '-' + chIdx + '" class="text-accent hover:text-accent-ink p-1 rounded hover:bg-accent/10 transition-colors" title="Add Artist Changeover (Repatch)">' +
+                                ui.icon('copy', 'w-3.5 h-3.5') +
+                              '</button>' +
+                            '</td>' +
+
+                            // Delete Socket
+                            '<td class="py-2 px-2 text-center align-middle">' +
+                              '<button type="button" data-ch-del="' + sbIdx + '-' + chIdx + '" class="text-muted hover:text-danger p-1 rounded hover:bg-panel transition-colors" title="Remove socket layer">' +
+                                ui.icon('x', 'w-3.5 h-3.5') +
+                              '</button>' +
+                            '</td>' +
+                          '</tr>'
+                        );
+                      }).join('');
+                    }).join('')
+                  )) +
+                '</tbody>' +
+              '</table>' +
+            '</div>' + 
+
+                        // Outputs Table View
+            '<div class="mt-4 border-t border-line/60 pt-4">' +
+              '<div class="text-[11px] font-bold text-muted uppercase tracking-wider mb-3">Outputs (Returns / Sends)</div>' +
+              
+              // Mobile Outputs
+              '<div class="md:hidden grid gap-2.5">' +
+                (!(box.outputs && box.outputs.length) ? (
+                  '<div class="text-center py-4 text-muted italic bg-panel2/30 rounded-lg border border-line p-3">No outputs in this stagebox.</div>'
+                ) : (
+                  box.outputs.map((out, outIdx) => {
+                    return (
+                      '<div class="p-3 rounded-lg bg-panel border border-line shadow-2xs grid gap-2 relative">' +
+                        '<div class="flex items-center gap-2">' +
+                          '<span class="font-mono font-bold text-xs px-2 py-0.5 rounded border border-line bg-panel2">' + (box.letter || '') + (out.socket) + '</span>' +
+                          '<input data-out-dest="' + sbIdx + '-' + outIdx + '" class="field !py-1 !px-2 text-xs bg-panel flex-1" value="' + ui.esc(out.destination || '') + '" placeholder="e.g. Wedge 1, IEM L" />' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Home Run Target</label>' +
+                          '<select data-out-hr="' + sbIdx + '-' + outIdx + '" class="bg-panel font-mono text-xs font-bold rounded border ' + (out.homeRunCh ? 'border-accent text-accent' : 'border-line text-muted') + ' py-1 px-1.5 w-full">' +
+                            '<option value="">(Unassigned / Drop)</option>' +
+                            Array.from({ length: Math.max(1, parseInt(hr.outputChannels, 10) || 16) }, (_, i) => {
+                              const num = i + 1;
+                              const pad = num < 10 ? '0' + num : '' + num;
+                              return '<option value="' + num + '" ' + (parseInt(out.homeRunCh, 10) === num ? 'selected' : '') + '>' + hrPrefix + ' Out ' + pad + '</option>';
+                            }).join('') +
+                          '</select>' +
+                        '</div>' +
+                      '</div>'
+                    );
+                  }).join('')
+                )) +
+              '</div>' +
+
+              // Desktop Outputs
+              '<div class="hidden md:block overflow-x-auto rounded-lg border border-line bg-panel2/30">' +
+                '<table class="w-full text-left text-xs border-collapse">' +
+                  '<thead>' +
+                    '<tr class="border-b border-line bg-panel2/80 text-[10px] font-bold text-muted uppercase tracking-wider">' +
+                      '<th class="py-2 px-2.5 w-14 text-center">Out</th>' +
+                      '<th class="py-2 px-2.5">Destination / Monitor</th>' +
+                      '<th class="py-2 px-2.5 min-w-[140px]">Home Run Target</th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody class="divide-y divide-line/40">' +
+                    (!(box.outputs && box.outputs.length) ? (
+                      '<tr><td colspan="3" class="text-center py-4 text-muted italic">No outputs in this stagebox.</td></tr>'
+                    ) : (
+                      box.outputs.map((out, outIdx) => {
+                        return (
+                          '<tr class="hover:bg-panel transition-colors">' +
+                            '<td class="py-2 px-2.5 text-center font-mono font-bold text-xs"><span class="px-2 py-0.5 rounded border border-line bg-panel2">' + (box.letter || '') + (out.socket) + '</span></td>' +
+                            '<td class="py-2 px-2.5">' +
+                              '<input data-out-dest="' + sbIdx + '-' + outIdx + '" class="field !py-1 !px-2 text-xs bg-panel w-full" value="' + ui.esc(out.destination || '') + '" placeholder="e.g. Wedge 1, IEM L" />' +
+                            '</td>' +
+                            '<td class="py-2 px-2.5">' +
+                              '<select data-out-hr="' + sbIdx + '-' + outIdx + '" class="bg-panel font-mono text-[11px] font-bold rounded border ' + (out.homeRunCh ? 'border-accent text-accent' : 'border-line text-muted') + ' py-1 px-1.5 w-full">' +
+                                '<option value="">(Unassigned / Drop)</option>' +
+                                Array.from({ length: Math.max(1, parseInt(hr.outputChannels, 10) || 16) }, (_, i) => {
+                                  const num = i + 1;
+                                  const pad = num < 10 ? '0' + num : '' + num;
+                                  return '<option value="' + num + '" ' + (parseInt(out.homeRunCh, 10) === num ? 'selected' : '') + '>' + hrPrefix + ' Out ' + pad + '</option>';
+                                }).join('') +
+                              '</select>' +
+                            '</td>' +
+                          '</tr>'
+                        );
+                      }).join('')
+                    )) +
+                  '</tbody>' +
+                '</table>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+
+        );
+      }).join('');
+
+      // Wire stagebox events
+      container.querySelectorAll('[data-sb-letter]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          sheet.stageboxes[+inp.getAttribute('data-sb-letter')].letter = inp.value.toUpperCase();
+        });
+      });
+      container.querySelectorAll('[data-sb-name]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          sheet.stageboxes[+inp.getAttribute('data-sb-name')].name = inp.value;
+        });
+      });
+      container.querySelectorAll('[data-sb-loc]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          sheet.stageboxes[+sel.getAttribute('data-sb-loc')].location = sel.value;
+        });
+      });
+      container.querySelectorAll('[data-sb-del]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = +btn.getAttribute('data-sb-del');
+          sheet.stageboxes.splice(idx, 1);
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-sb-add-ch]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = +btn.getAttribute('data-sb-add-ch');
+          const box = sheet.stageboxes[idx];
+          if (!box.channels) box.channels = [];
+          box.channels.push({
+            socket: box.channels.length + 1,
+            actId: sheet.acts[0] ? sheet.acts[0].id : 'act-house',
+            instrument: '',
+            mic: '',
+            phantom: false,
+            repatch: false,
+            repatchTo: '',
+            homeRunCh: null
+          });
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-sb-add-out]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = +btn.getAttribute('data-sb-add-out');
+          const box = sheet.stageboxes[idx];
+          if (!box.outputs) box.outputs = [];
+          box.outputs.push({
+            socket: box.outputs.length + 1,
+            destination: '',
+            homeRunCh: null
+          });
+          renderStageboxes();
+        });
+      });
+
+      // Wire channel inputs
+      container.querySelectorAll('[data-ch-act]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const [sbIdx, chIdx] = sel.getAttribute('data-ch-act').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].actId = sel.value;
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-ch-inst]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const [sbIdx, chIdx] = inp.getAttribute('data-ch-inst').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].instrument = inp.value;
+        });
+      });
+      container.querySelectorAll('[data-ch-mic]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const [sbIdx, chIdx] = inp.getAttribute('data-ch-mic').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].mic = inp.value;
+        });
+      });
+      container.querySelectorAll('[data-ch-48v]').forEach((chk) => {
+        chk.addEventListener('change', () => {
+          const [sbIdx, chIdx] = chk.getAttribute('data-ch-48v').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].phantom = chk.checked;
+        });
+      });
+      container.querySelectorAll('[data-ch-conn]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const [sbIdx, chIdx] = sel.getAttribute('data-ch-conn').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].connectorType = sel.value;
+        });
+      });
+
+      container.querySelectorAll('[data-out-dest]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const [sbIdx, outIdx] = inp.getAttribute('data-out-dest').split('-').map(Number);
+          sheet.stageboxes[sbIdx].outputs[outIdx].destination = inp.value;
+        });
+      });
+      container.querySelectorAll('[data-out-hr]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const [sbIdx, outIdx] = sel.getAttribute('data-out-hr').split('-').map(Number);
+          sheet.stageboxes[sbIdx].outputs[outIdx].homeRunCh = sel.value ? parseInt(sel.value, 10) : null;
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-ch-hr]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const [sbIdx, chIdx] = sel.getAttribute('data-ch-hr').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].homeRunCh = sel.value ? parseInt(sel.value, 10) : null;
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-ch-del]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const [sbIdx, chIdx] = btn.getAttribute('data-ch-del').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels.splice(chIdx, 1);
+          // renumber unique sockets
+          const channels = sheet.stageboxes[sbIdx].channels;
+          let currentSocket = 1;
+          let lastSocketSeen = -1;
+          channels.forEach((c) => {
+            if (c.socket !== lastSocketSeen) {
+              lastSocketSeen = c.socket;
+              c.socket = currentSocket++;
+            } else {
+              c.socket = currentSocket - 1;
+            }
+          });
+          renderStageboxes();
+        });
+      });
+      container.querySelectorAll('[data-ch-duplicate]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const [sbIdx, chIdx] = btn.getAttribute('data-ch-duplicate').split('-').map(Number);
+          const box = sheet.stageboxes[sbIdx];
+          const sourceCh = box.channels[chIdx];
+          const newCh = JSON.parse(JSON.stringify(sourceCh));
+          // Find next act index
+          const acts = sheet.acts || [];
+          const currentActIdx = acts.findIndex(a => a.id === sourceCh.actId);
+          if (currentActIdx >= 0 && currentActIdx < acts.length - 1) {
+            newCh.actId = acts[currentActIdx + 1].id;
+          }
+          newCh.repatch = true;
+          // Insert immediately after the source channel
+          box.channels.splice(chIdx + 1, 0, newCh);
+          renderStageboxes();
+        });
+      });
+    }
+
+    /* ---- Step 3: Signal Flow & Home Run Matrix ---- */
+    function renderSignalFlow() {
+      const hr = getHomeRunConfig(sheet);
+      const totalInputs = Math.max(1, parseInt(hr.inputChannels, 10) || 32);
+      const hrPrefix = (hr.prefix || 'HR').trim();
+      const matrixEl = m.root.querySelector('#ps-signal-flow-matrix');
+      if (!matrixEl) return;
+
+      const acts = sheet.acts || [];
+      
+      let thead = '<tr class="border-b border-line bg-panel2 text-[10px] font-bold text-muted uppercase tracking-wider">';
+      thead += '<th class="py-2 px-3 border-r border-line bg-panel sticky left-0 z-10 w-24">Home Run</th>';
+      
+      for (let i = 0; i < acts.length; i++) {
+        const act = acts[i];
+        const isHouse = act.id === 'act-house';
+        thead += '<th class="py-2 px-3 min-w-[180px] ' + (isHouse ? 'bg-panel2/50' : '') + '">' + ui.esc(act.name) + '</th>';
+        if (i < acts.length - 1) {
+           thead += '<th class="py-2 px-2 w-24 text-center bg-panel2 border-x border-line/60">Changeover</th>';
+        }
+      }
+      thead += '</tr>';
+
+      let tbody = '';
+      for (let ch = 1; ch <= totalInputs; ch++) {
+        const padCh = ch < 10 ? '0' + ch : ch;
+        let row = '<tr class="border-b border-line/40 hover:bg-panel/50">';
+        row += '<td class="py-2 px-3 border-r border-line bg-panel sticky left-0 z-10"><span class="font-mono font-bold text-ink">' + hrPrefix + ' ' + padCh + '</span></td>';
+        
+        let prevCellData = null;
+        
+        for (let i = 0; i < acts.length; i++) {
+          const act = acts[i];
+          
+          let cellPatch = null;
+          let sbObj = null;
+          let chIdxObj = -1;
+          let sbIdxObj = -1;
+          
+          for (let sbIdx = 0; sbIdx < sheet.stageboxes.length; sbIdx++) {
+            const b = sheet.stageboxes[sbIdx];
+            const cIdx = (b.channels || []).findIndex(c => c.actId === act.id && parseInt(c.homeRunCh, 10) === ch);
+            if (cIdx > -1) {
+              cellPatch = b.channels[cIdx];
+              sbObj = b;
+              chIdxObj = cIdx;
+              sbIdxObj = sbIdx;
+              break;
+            }
+          }
+          
+          const hasPatch = !!cellPatch;
+          const sbName = hasPatch ? (sbObj.name || 'Box ' + sbObj.letter) : '';
+          const inst = hasPatch ? (cellPatch.instrument || '') : '';
+          const mic = hasPatch ? (cellPatch.mic || '') : '';
+          
+          const currentCellData = hasPatch ? { sb: sbObj.id, socket: cellPatch.socket, inst: inst, mic: mic } : null;
+          
+          if (i > 0) {
+            let coText = '';
+            let coClass = 'text-muted';
+            let coBg = 'bg-panel2';
+            
+            if (!currentCellData) {
+               coText = 'Not Used Next Act';
+               coClass = 'text-muted';
+            } else if (!prevCellData) {
+               coText = 'ADD PATCH';
+               coClass = 'text-info font-bold';
+               coBg = 'bg-info/10';
+            } else {
+               if (currentCellData.sb === prevCellData.sb && currentCellData.socket === prevCellData.socket && currentCellData.inst === prevCellData.inst && currentCellData.mic === prevCellData.mic) {
+                  coText = 'No Change';
+                  coClass = 'text-muted';
+               } else {
+                  coText = 'REPATCH';
+                  coClass = 'text-warning font-bold';
+                  coBg = 'bg-warning/20';
+               }
+            }
+            row += '<td class="py-2 px-2 text-center text-[10px] ' + coClass + ' ' + coBg + ' border-x border-line/60">' + coText + '</td>';
+          }
+          
+          row += '<td class="py-2 px-2 align-top">';
+          if (hasPatch) {
+             row += '<div class="grid gap-1 bg-panel border border-line p-1.5 rounded text-xs shadow-2xs">' +
+                 '<div class="flex justify-between items-center text-[10px] font-bold text-muted uppercase">' +
+                   '<span>' + ui.esc(sbName) + ' &middot; Skt ' + cellPatch.socket + '</span>' +
+                   '<button type="button" data-mat-unpatch="' + sbIdxObj + '-' + chIdxObj + '" class="text-danger hover:bg-danger/10 px-1 rounded" title="Remove Patch">' + ui.icon('x', 'w-3 h-3') + '</button>' +
+                 '</div>' +
+                 '<input type="text" data-mat-inst="' + sbIdxObj + '-' + chIdxObj + '" class="field !py-0.5 !px-1.5 text-xs font-bold text-ink w-full" value="' + ui.esc(inst) + '" placeholder="Instrument..." />' +
+                 '<input type="text" data-mat-mic="' + sbIdxObj + '-' + chIdxObj + '" class="field !py-0.5 !px-1.5 text-[10px] text-muted w-full" value="' + ui.esc(mic) + '" placeholder="Mic..." />' +
+               '</div>';
+          } else {
+             row += '<select data-mat-add="' + act.id + '-' + ch + '" class="bg-panel2/50 text-xs border border-line/50 rounded py-1 px-1 text-muted w-full">' +
+                 '<option value="">+ Add Patch...</option>' +
+                 sheet.stageboxes.map((sb, sIdx) => {
+                   return '<optgroup label="' + ui.esc(sb.name || sb.letter) + '">' + 
+                     Array.from({length: sb.capacity}, (_, sockI) => sockI+1).map(sock => {
+                       return '<option value="' + sIdx + '-' + sock + '">' + ui.esc(sb.letter || '') + sock + '</option>';
+                     }).join('') +
+                   '</optgroup>';
+                 }).join('') +
+               '</select>';
+          }
+          row += '</td>';
+          prevCellData = currentCellData;
+        }
+        row += '</tr>';
+        tbody += row;
+      }
+
+      matrixEl.innerHTML = '<div class="overflow-x-auto bg-panel border border-line rounded-xl shadow-xs">' +
+          '<table class="w-full text-left border-collapse min-w-max">' +
+            '<thead>' + thead + '</thead>' +
+            '<tbody>' + tbody + '</tbody>' +
+          '</table>' +
+        '</div>';
+
+      matrixEl.querySelectorAll('[data-mat-add]').forEach(sel => {
+        sel.addEventListener('change', () => {
+          if (!sel.value) return;
+          const [actId, hrCh] = sel.getAttribute('data-mat-add').split('-');
+          const [sbIdx, socket] = sel.value.split('-').map(Number);
+          const box = sheet.stageboxes[sbIdx];
+          if (!box.channels) box.channels = [];
+          box.channels.push({
+            socket: socket,
+            actId: actId,
+            instrument: '',
+            mic: '',
+            phantom: false,
+            repatch: false,
+            homeRunCh: parseInt(hrCh, 10)
+          });
+          renderSignalFlow();
+        });
+      });
+
+      matrixEl.querySelectorAll('[data-mat-unpatch]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const [sbIdx, chIdx] = btn.getAttribute('data-mat-unpatch').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels.splice(chIdx, 1);
+          renderSignalFlow();
+        });
+      });
+
+      matrixEl.querySelectorAll('[data-mat-inst]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const [sbIdx, chIdx] = inp.getAttribute('data-mat-inst').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].instrument = inp.value;
+        });
+      });
+
+      matrixEl.querySelectorAll('[data-mat-mic]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const [sbIdx, chIdx] = inp.getAttribute('data-mat-mic').split('-').map(Number);
+          sheet.stageboxes[sbIdx].channels[chIdx].mic = inp.value;
+        });
+      });
+    }
+
+    /* ---- Step 4: Repatches (Auto-Computed) ---- */
+    function renderRepatches() {
+      const summaryEl = m.root.querySelector('#ps-repatch-summary-list');
+      const countBadge = m.root.querySelector('#ps-repatch-count-badge');
+      const repatches = computeRepatchList(sheet);
+      const hr = getHomeRunConfig(sheet);
+      const hrPrefix = (hr.prefix || 'HR').trim();
+
+      if (countBadge) countBadge.textContent = repatches.length + ' Repatches';
+      if (!summaryEl) return;
+
+      if (!repatches.length) {
+        summaryEl.innerHTML = '<div class="text-xs text-muted italic p-2 bg-panel rounded border border-line">No channel repatches flagged. All stagebox sockets remain static across acts.</div>';
+        return;
+      }
+
+      // Group by Transition (From Act -> To Act)
+      const transitions = {};
+      repatches.forEach(r => {
+        const key = r.fromAct + '|||' + r.toAct;
+        if (!transitions[key]) transitions[key] = [];
+        transitions[key].push(r);
+      });
+
+      summaryEl.innerHTML = Object.keys(transitions).map((key) => {
+        const [fromAct, toAct] = key.split('|||');
+        const items = transitions[key];
+        
+        return '<div class="mb-4 rounded-xl border border-line bg-panel2/50 overflow-hidden">' +
+          '<div class="px-3 py-2 bg-panel2 border-b border-line flex items-center justify-between">' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="font-bold text-ink text-xs uppercase tracking-wider">Changeover:</span>' +
+              '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-panel border border-line text-muted">' + ui.esc(fromAct) + '</span>' +
+              ui.icon('arrowR', 'w-3 h-3 text-muted') +
+              '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-accent/15 border border-accent/30 text-accent">' + ui.esc(toAct) + '</span>' +
+            '</div>' +
+            '<span class="text-[10px] font-mono text-muted">' + items.length + ' operations</span>' +
+          '</div>' +
+          '<div class="p-2 grid gap-1.5">' +
+            items.map(r => {
+              const hrLabel = r.homeRunCh ? hrPrefix + ' ' + (r.homeRunCh < 10 ? '0' + r.homeRunCh : r.homeRunCh) : 'Unassigned';
+              return (
+                '<div class="p-2.5 rounded-lg bg-panel border border-line flex items-center justify-between flex-wrap gap-2 shadow-2xs">' +
+                  '<div class="flex items-center gap-2 flex-wrap">' +
+                    '<span class="font-mono font-bold text-warning text-[11px] px-2 py-0.5 rounded bg-warning/15 border border-warning/30">Box ' + r.stageboxLetter + ' Ch ' + r.socket + '</span>' +
+                    '<span class="font-mono text-[11px] font-bold text-accent px-1.5 py-0.5 rounded bg-panel2 border border-line">' + hrLabel + '</span>' +
+                    '<span class="text-xs font-semibold text-ink">' + ui.esc(r.stageboxLocation || r.stageboxName) + '</span>' +
+                  '</div>' +
+                  '<div class="text-[11px] font-medium flex items-center gap-2 flex-1 justify-end">' +
+                    '<span class="text-muted line-through">Unplug: ' + ui.esc(r.fromInst) + '</span>' +
+                    ui.icon('arrowR', 'w-3.5 h-3.5 text-warning') + 
+                    '<span class="text-ink font-bold">Plug In: ' + ui.esc(r.toInst) + (r.mic ? ' (' + ui.esc(r.mic) + ')' : '') + '</span>' +
+                  '</div>' +
+                '</div>'
+              );
+            }).join('') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+
+    function renderMixingIOSummary() {
+      const ioEl = m.root.querySelector('#ps-mixing-io-preview');
+      if (!ioEl) return;
+      const hr = getHomeRunConfig(sheet);
+      const mapping = computeHomeRunMapping(sheet);
+      
+      const acts = sheet.acts || [];
+      const performingActs = acts.filter(a => a.id !== 'act-house');
+      if (performingActs.length === 0) {
+         ioEl.innerHTML = '<div class="p-4 text-center text-muted italic">Add acts to the event to view the IO summary grid.</div>';
+         return;
+      }
+      
+      // Build header row with Acts
+      let thead = '<thead><tr class="border-b border-line bg-panel2/60 text-muted uppercase text-[10px] font-bold">' +
+        '<th class="p-2 border-r border-line w-20 sticky left-0 z-10 bg-panel2 font-mono">CH</th>';
+      
+      performingActs.forEach(act => {
+        const col = getActColorObj(act.color);
+        thead += '<th class="p-2 border-r border-line/40 text-center min-w-[120px]"><span class="px-2 py-0.5 rounded ' + col.bg + ' ' + col.text + ' border ' + col.border + '">' + ui.esc(act.name) + '</span></th>';
+      });
+      thead += '</tr></thead>';
+      
+      let tbody = '<tbody class="divide-y divide-line/40">';
+      
+      mapping.forEach(mRow => {
+        let anyPatched = mRow.assignedSockets.length > 0;
+        if (!anyPatched) return; // skip entirely unused channels to keep it dense, or maybe show them? let's show all for a true patch sheet, or just ones up to highest used? Let's show all up to highest used.
+      });
+      
+      // Find highest patched channel to trim empty tail
+      let highestUsed = 0;
+      mapping.forEach((mRow, i) => {
+         if (mRow.assignedSockets.length > 0) highestUsed = i;
+      });
+      
+      for (let i = 0; i <= highestUsed; i++) {
+        const mRow = mapping[i];
+        
+        tbody += '<tr class="hover:bg-panel2/40 transition-colors">' +
+          '<td class="p-2 border-r border-line font-mono font-bold text-accent sticky left-0 z-10 bg-panel">' + mRow.label + '</td>';
+          
+        performingActs.forEach(act => {
+           // Find socket for this act
+           // It's this act if actId matches, OR if it's 'act-house'.
+           // If multiple, repatch/changeover logic dictates we take the one assigned to this act, or the shared one.
+           let actSocket = mRow.assignedSockets.find(s => s.actId === act.id);
+           if (!actSocket) {
+             actSocket = mRow.assignedSockets.find(s => s.actId === 'act-house');
+           }
+           
+           const isMuted = sheet.actMutes && sheet.actMutes[act.id] && sheet.actMutes[act.id][mRow.chNumber];
+           
+           if (!actSocket) {
+             tbody += '<td class="p-2 border-r border-line/40 text-center"><span class="text-muted/40 font-mono text-[10px]">—</span></td>';
+           } else {
+             const bgClass = isMuted ? 'opacity-30 grayscale hover:opacity-100 cursor-pointer' : 'hover:bg-accent/10 cursor-pointer';
+             const iconHtml = isMuted ? '<div class="absolute top-1 left-1 text-danger/80" title="Unassigned / Muted for this act">' + ui.icon('x', 'w-3 h-3') + '</div>' : '';
+             
+             tbody += '<td class="p-2 border-r border-line/40 text-center relative transition-all ' + bgClass + '" data-toggle-mute="' + act.id + '-' + mRow.chNumber + '">' +
+               iconHtml + 
+               '<div class="font-bold text-ink text-[11px]">' + ui.esc(actSocket.instrument || 'Line') + '</div>' +
+               '<div class="text-[10px] text-muted font-mono mt-0.5">' + ui.esc(actSocket.mic || '') + ' ' + (actSocket.phantom ? '<b class="text-danger">+48V</b>' : '') + '</div>' +
+             '</td>';
+           }
+        });
+        
+        tbody += '</tr>';
+      }
+      
+      tbody += '</tbody>';
+      
+      ioEl.innerHTML = '<table class="w-full border-collapse text-left text-xs bg-panel">' + thead + tbody + '</table>';
+      
+      // Wire events
+      ioEl.querySelectorAll('[data-toggle-mute]').forEach(td => {
+        td.addEventListener('click', () => {
+           const parts = td.getAttribute('data-toggle-mute').split('-');
+           const actId = parts.slice(0, parts.length - 1).join('-');
+           const chNum = parseInt(parts[parts.length - 1], 10);
+           
+           if (!sheet.actMutes) sheet.actMutes = {};
+           if (!sheet.actMutes[actId]) sheet.actMutes[actId] = {};
+           
+           sheet.actMutes[actId][chNum] = !sheet.actMutes[actId][chNum];
+           renderMixingIOSummary();
+        });
+      });
+    }
+
+    function renderMasterSchedule() {
+      const scheduleEl = m.root.querySelector('#ps-master-schedule-preview');
+      if (!scheduleEl) return;
+      const hr = getHomeRunConfig(sheet);
+      const mapping = computeHomeRunMapping(sheet);
+
+      scheduleEl.innerHTML =
+        '<table class="w-full border-collapse text-left text-xs">' +
+          '<thead><tr class="border-b border-line bg-panel2/60 text-muted uppercase text-[10px] font-bold">' +
+            '<th class="p-2 font-mono">Home Run</th>' +
+            '<th class="p-2">Stagebox Drop</th>' +
+            '<th class="p-2">Stage Location</th>' +
+            '<th class="p-2">Act / Artist</th>' +
+            '<th class="p-2">Instrument / Source</th>' +
+            '<th class="p-2">Mic / DI</th>' +
+            '<th class="p-2">+48V</th>' +
+            '<th class="p-2">Changeover Notes</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            mapping.map((m) => {
+              const prim = m.primarySocket;
+              const col = prim ? getActColorObj(prim.actColor) : ACT_COLORS[0];
+              return (
+                '<tr class="border-b border-line/40 hover:bg-panel2/40 transition-colors ' + (m.isCollision ? 'bg-danger/10' : '') + '">' +
+                  '<td class="p-2 font-mono font-bold text-accent">' + m.label + '</td>' +
+                  '<td class="p-2 font-mono font-semibold">' + (prim ? 'Box ' + prim.boxLetter + ' \u00b7 Skt ' + prim.socket : '<span class="text-muted font-normal">\u2014 Open \u2014</span>') + '</td>' +
+                  '<td class="p-2 text-muted">' + (prim ? ui.esc(prim.boxLocation) : '\u2014') + '</td>' +
+                  '<td class="p-2">' + (prim ? '<span class="px-1.5 py-0.2 rounded text-[10px] font-bold border ' + col.border + ' ' + col.bg + ' ' + col.text + '">' + ui.esc(prim.actName) + '</span>' : '\u2014') + '</td>' +
+                  '<td class="p-2 font-semibold text-ink">' + (prim ? ui.esc(prim.instrument || 'Line') : '<span class="text-muted font-normal">Spare</span>') + '</td>' +
+                  '<td class="p-2 text-muted font-mono">' + (prim ? ui.esc(prim.mic || '\u2014') : '\u2014') + '</td>' +
+                  '<td class="p-2">' + (prim && prim.phantom ? '<b class="text-danger font-mono">+48V</b>' : '\u2014') + '</td>' +
+                  '<td class="p-2 ' + (prim && prim.repatch ? 'text-warning font-semibold' : 'text-muted') + '">' +
+                    (m.isCollision ? '<b class="text-danger">COLLISION: ' + m.assignedSockets.map((as) => 'Box ' + as.boxLetter + ' Skt ' + as.socket).join(' & ') + '</b>' : (prim && prim.repatch ? ui.esc(prim.repatchTo || 'Repatch between sets') : '\u2014')) +
+                  '</td>' +
+                '</tr>'
+              );
+            }).join('') +
+          '</tbody>' +
+        '</table>';
+
+      const printModalBtn = m.root.querySelector('#btn-print-from-modal');
+      if (printModalBtn) {
+        printModalBtn.onclick = () => {
+          printPatchSheet(sheet);
+        };
+      }
+    }
+
+    // Add Act Button
+    const addActBtn = m.root.querySelector('#btn-add-act');
+    if (addActBtn) {
+      addActBtn.addEventListener('click', () => {
+        const unusedColors = ACT_COLORS.filter((c) => !sheet.acts.some((a) => a.color === c.id));
+        const color = unusedColors[0] ? unusedColors[0].id : 'blue';
+        sheet.acts.push({
+          id: 'act-' + Date.now().toString(36),
+          name: 'Act ' + (sheet.acts.length + 1),
+          color: color
+        });
+        renderActs();
+        renderStageboxes();
+      });
+    }
+
+    // Add Stagebox Presets
+    m.root.querySelectorAll('[data-add-sb-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const count = +btn.getAttribute('data-add-sb-preset');
+        const letter = nextLetter();
+        sheet.stageboxes.push({
+          id: store.uid('sb'),
+          letter: letter,
+          name: 'Stagebox ' + letter,
+          location: 'Stage Left',
+          capacity: count,
+          outCapacity: count === 16 ? 8 : count === 8 ? 4 : 4,
+          channels: Array.from({ length: count }, (_, i) => ({
+            socket: i + 1,
+            actId: sheet.acts[0] ? sheet.acts[0].id : 'act-house',
+            instrument: '',
+            mic: '',
+            phantom: false,
+            repatch: false,
+            repatchTo: '',
+            homeRunCh: null
+          })),
+          outputs: Array.from({ length: count === 16 ? 8 : count === 8 ? 4 : 4 }, (_, i) => ({
+            socket: i + 1,
+            destination: ''
+          }))
+        });
+        renderStageboxes();
+      });
+    });
+
+    const addLocalBtn = m.root.querySelector('#btn-add-local-sb');
+    if (addLocalBtn) {
+      addLocalBtn.addEventListener('click', () => {
+        const letter = 'L'; // L for local
+        const inCap = sheet.homeRun.localInputChannels || 8;
+        const outCap = sheet.homeRun.localOutputChannels || 8;
+        sheet.stageboxes.push({
+          id: store.uid('sb'),
+          letter: letter,
+          name: 'Local Desk I/O',
+          location: 'FOH',
+          capacity: inCap,
+          outCapacity: outCap,
+          channels: Array.from({ length: inCap }, (_, i) => ({
+            socket: i + 1,
+            actId: sheet.acts[0] ? sheet.acts[0].id : 'act-house',
+            instrument: '',
+            mic: '',
+            phantom: false,
+            repatch: false,
+            repatchTo: '',
+            homeRunCh: null
+          })),
+          outputs: Array.from({ length: outCap }, (_, i) => ({
+            socket: i + 1,
+            destination: ''
+          }))
+        });
+        renderStageboxes();
+      });
+    }
+
+    const addCustomBtn = m.root.querySelector('#btn-add-custom-sb');
+    if (addCustomBtn) {
+            addCustomBtn.addEventListener('click', () => {
+        const pm = ui.modal({
+          title: 'Custom Stagebox',
+          body: '<div class="grid gap-3">' +
+                '<div><label class="block text-xs font-bold uppercase text-muted mb-1">Inputs</label><input type="number" id="cus-ins" class="field" value="12" min="0" max="128" /></div>' +
+                '<div><label class="block text-xs font-bold uppercase text-muted mb-1">Outputs</label><input type="number" id="cus-outs" class="field" value="4" min="0" max="128" /></div>' +
+                '</div>',
+          footer: '<button type="button" class="btn btn-primary mr-auto" data-cus-create>Create Box</button>' +
+                  '<button type="button" class="btn btn-ghost" data-cus-cancel>Cancel</button>'
+        });
+        pm.root.querySelector('[data-cus-cancel]').addEventListener('click', pm.close);
+        pm.root.querySelector('[data-cus-create]').addEventListener('click', () => {
+          const ins = parseInt(pm.root.querySelector('#cus-ins').value, 10) || 0;
+          const outs = parseInt(pm.root.querySelector('#cus-outs').value, 10) || 0;
+          pm.close();
+          const letter = nextLetter();
+          sheet.stageboxes.push({
+            id: store.uid('sb'),
+            letter: letter,
+            name: 'Custom Box ' + letter,
+            location: 'Centre Stage',
+            capacity: ins,
+            outCapacity: outs,
+            channels: Array.from({ length: ins }, (_, i) => ({
+              socket: i + 1,
+              actId: sheet.acts[0] ? sheet.acts[0].id : 'act-house',
+              instrument: '',
+              mic: '',
+              phantom: false,
+              repatch: false,
+              repatchTo: '',
+              homeRunCh: null
+            })),
+            outputs: Array.from({ length: outs }, (_, i) => ({
+              socket: i + 1,
+              destination: ''
+            }))
+          });
+          renderStageboxes();
+        });
+      });
+    }
+
+    // Linked Event Selector Change Listener
+    const evSelect = m.root.querySelector('#ps-event');
+    if (evSelect) {
+      evSelect.addEventListener('change', () => {
+        const selectedId = evSelect.value || null;
+        sheet.eventId = selectedId;
+        if (selectedId) {
+          const linkedEv = events.find((e) => e.id === selectedId);
+          if (linkedEv) {
+            sheet.eventName = linkedEv.name || '';
+            if (linkedEv.space) {
+              sheet.space = linkedEv.space;
+              const spEl = m.root.querySelector('#ps-space');
+              if (spEl) spEl.value = linkedEv.space;
+              applyVenueRoomIO(linkedEv.space, true);
+            }
+            if (linkedEv.date) {
+              sheet.date = linkedEv.date;
+              const dtEl = m.root.querySelector('#ps-date');
+              if (dtEl) dtEl.value = linkedEv.date;
+            }
+            const nameEl = m.root.querySelector('#ps-name');
+            if (nameEl && (!nameEl.value || nameEl.value.trim() === 'Event Patch Sheet' || nameEl.value.trim() === 'New Event Patch Sheet')) {
+              nameEl.value = (linkedEv.name || 'Event') + ' — Stagebox Patch Plan';
+              sheet.name = nameEl.value;
+            }
+            if (sheet.acts.length <= 1) {
+              syncArtistsFromEvent(sheet, linkedEv, true);
+            }
+
+            const schedule = Array.isArray(linkedEv.schedule_items) ? linkedEv.schedule_items : (Array.isArray(linkedEv.scheduleItems) ? linkedEv.scheduleItems : []);
+            const scheduleActs = schedule.filter((it) => it && (it.type === 'act' || (it.customName && it.customName.trim())));
+            const hasMasterChannels = linkedEv.tech_requirements && linkedEv.tech_requirements.channel_list && (linkedEv.tech_requirements.channel_list.inputs || linkedEv.tech_requirements.channel_list.outputs);
+            if (scheduleActs.length > 0 || hasMasterChannels) {
+              syncArtistsFromEvent(sheet, linkedEv, true);
+              renderActs();
+              renderStageboxes();
+              if (scheduleActs.length > 0) {
+                ui.toast('Pulled ' + scheduleActs.length + ' artist(s) and channels from ' + linkedEv.name + ' schedule', 'ok');
+              } else {
+                ui.toast('Pulled master channel lists from ' + linkedEv.name, 'ok');
+              }
+            }
+          }
+        } else {
+          sheet.eventName = '';
+        }
+        renderEventSyncBanner();
+      });
+    }
+
+    
+    const spSelect = m.root.querySelector('#ps-space');
+    if (spSelect) {
+      spSelect.addEventListener('change', () => {
+        sheet.space = spSelect.value;
+        applyVenueRoomIO(spSelect.value, true);
+        ui.toast('Applied Venue I/O defaults for ' + spSelect.value, 'ok');
+      });
+    }
+
+    const loadRoomBtn = m.root.querySelector('#btn-save-room-io');
+    if (loadRoomBtn) {
+      loadRoomBtn.addEventListener('click', () => {
+        sheet.space = m.root.querySelector('#ps-space').value || 'Main Hall';
+        if (confirm('Overwrite current Home Run and Stagebox setup with ' + sheet.space + ' venue defaults?')) {
+          applyVenueRoomIO(sheet.space, true);
+          ui.toast('Pulled Venue I/O defaults', 'ok');
+        }
+      });
+    }
+
+    setStep(currentStep);
+
+    m.root.querySelector('[data-cancel]').addEventListener('click', () => m.close());
+    m.root.querySelector('#btn-save-sheet').addEventListener('click', () => {
+      const name = (m.root.querySelector('#ps-name').value || '').trim();
+      if (!name) {
+        setStep(1);
+        ui.toast('Enter a patch sheet name in Step 1', 'danger');
+        return;
+      }
+
+      const evId = m.root.querySelector('#ps-event').value || null;
+      let evName = '';
+      let linkedEv = null;
+      if (evId) {
+        linkedEv = events.find((e) => e.id === evId) || (store.all('advancing') || []).find((e) => e.id === evId);
+        if (linkedEv) evName = linkedEv.name;
+      }
+
+      sheet.name = name;
+      sheet.eventId = evId;
+      sheet.eventName = evName;
+      sheet.space = m.root.querySelector('#ps-space').value || 'Main Hall';
+      sheet.date = m.root.querySelector('#ps-date').value || '';
+      sheet.notes = (m.root.querySelector('#ps-notes').value || '').trim();
+
+      const saved = savePatchSheet(sheet);
+
+      // Bi-directional Push to Event Advancing Schedule
+      if (linkedEv) {
+        let schedule = Array.isArray(linkedEv.schedule_items)
+          ? JSON.parse(JSON.stringify(linkedEv.schedule_items))
+          : (Array.isArray(linkedEv.scheduleItems) ? JSON.parse(JSON.stringify(linkedEv.scheduleItems)) : []);
+
+        const realActs = sheet.acts.filter((a) => a && a.name && a.name.trim() && a.id !== 'act-house');
+        const actsToSync = realActs.length > 0 ? realActs : sheet.acts.filter((a) => a && a.name && a.name.trim());
+
+        if (schedule.length === 0 && actsToSync.length > 0) {
+          // Event has NO schedule items: Create one per artist listed in patch sheet!
+          const startBase = linkedEv.doors || linkedEv.startTime || '19:00';
+          const newSchedule = [];
+
+          actsToSync.forEach((act, idx) => {
+            const actInputs = [];
+            (sheet.stageboxes || []).forEach((b) => {
+              (b.channels || []).forEach((c) => {
+                if (c.actId === act.id && (c.instrument || c.mic)) {
+                  actInputs.push({
+                    channel: actInputs.length + 1,
+                    instrument: c.instrument || 'Line',
+                    mic: c.mic || 'Direct',
+                    stand: 'Tall Boom',
+                    pos: b.location || 'Centre Stage',
+                    phantom: !!c.phantom
+                  });
+                }
+              });
+            });
+
+            const actTime = addMinutesToTime(startBase, 30 + idx * 60);
+            newSchedule.push({
+              type: 'act',
+              label: 'Act ' + (idx + 1),
+              customName: act.name,
+              time: actTime,
+              duration: '00:45',
+              techReqType: actInputs.length ? 'channels' : 'none',
+              techNotes: '',
+              techFile: null,
+              channelInputs: actInputs,
+              channelOutputs: []
+            });
+
+            if (idx < actsToSync.length - 1) {
+              const changeoverTime = addMinutesToTime(actTime, 45);
+              newSchedule.push({
+                type: 'changeover',
+                label: 'Changeover',
+                customName: 'Changeover (' + act.name + ' \u2192 ' + actsToSync[idx + 1].name + ')',
+                time: changeoverTime,
+                duration: '00:15',
+                techReqType: 'none'
+              });
+            }
+          });
+
+          linkedEv.schedule_items = newSchedule;
+          linkedEv.patch_sheet_id = saved.id;
+          store.upsert('advancing', linkedEv);
+          ui.toast('Created ' + actsToSync.length + ' schedule items for event "' + linkedEv.name + '"', 'ok');
+        } else if (schedule.length > 0 && actsToSync.length > 0) {
+          // Event has existing schedule items: Enrich blank act names and append any missing acts
+          let modified = false;
+          let actSlotIdx = 0;
+          schedule.forEach((it) => {
+            if (it.type === 'act') {
+              if (!it.customName || !it.customName.trim()) {
+                if (actsToSync[actSlotIdx]) {
+                  it.customName = actsToSync[actSlotIdx].name;
+                  modified = true;
+                }
+              }
+              actSlotIdx++;
+            }
+          });
+
+          actsToSync.forEach((act, aIdx) => {
+            const found = schedule.some((it) => it.customName && it.customName.toLowerCase().trim() === act.name.toLowerCase().trim());
+            if (!found && aIdx >= actSlotIdx) {
+              const lastItem = schedule[schedule.length - 1];
+              const lastTime = (lastItem && lastItem.time) ? lastItem.time : '21:00';
+              schedule.push({
+                type: 'act',
+                label: 'Act ' + (schedule.filter((s) => s.type === 'act').length + 1),
+                customName: act.name,
+                time: addMinutesToTime(lastTime, 45),
+                duration: '00:45',
+                techReqType: 'none',
+                techNotes: '',
+                techFile: null,
+                channelInputs: [],
+                channelOutputs: []
+              });
+              modified = true;
+            }
+          });
+
+          linkedEv.schedule_items = schedule;
+          linkedEv.patch_sheet_id = saved.id;
+          store.upsert('advancing', linkedEv);
+          if (modified) {
+            ui.toast('Synchronized patch sheet artists with Advancing schedule', 'ok');
+          }
+        } else {
+          linkedEv.patch_sheet_id = saved.id;
+          store.upsert('advancing', linkedEv);
+        }
+      }
+
+      m.close();
+      ui.toast('Saved patch sheet "' + name + '"', 'ok');
+      if (typeof onSaved === 'function') onSaved(saved);
+    });
+  }
+
+  /* ---- Printable / PDF Export Helper Engine ---- */
+  function openPrintDocument(doc) {
+    const win = window.open('', '_blank');
+    if (!win) {
+      ui.toast('Pop-up blocked. Please allow pop-ups to print PDF.', 'danger');
+      return;
+    }
+
+    const title = doc.title || 'Meridian Arts Technical Document';
+    const subtitle = doc.subtitle || 'Technical Specifications & Production Rider';
+    const meta = Array.isArray(doc.meta) ? doc.meta : [];
+    const sections = Array.isArray(doc.sections) ? doc.sections : [];
+
+    const html =
+      '<!DOCTYPE html>' +
+      '<html><head><meta charset="utf-8">' +
+      '<title>' + ui.esc(title) + '</title>' +
+      '<style>' +
+        '@page { size: A4 portrait; margin: 12mm 15mm; }' +
+        'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 24px; color: #0f172a; font-size: 11px; line-height: 1.45; background: #fff; }' +
+        '.print-top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }' +
+        '.brand { font-size: 14px; font-weight: 800; color: #0f172a; letter-spacing: 0.06em; text-transform: uppercase; }' +
+        '.sub-brand { font-size: 10px; font-weight: 600; color: #64748b; text-transform: uppercase; margin-top: 2px; }' +
+        '.doc-title { font-size: 18px; font-weight: 800; color: #0f172a; margin: 6px 0 0 0; }' +
+        '.doc-badge { background: #0f172a; color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }' +
+        '.meta-grid { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; font-size: 10px; }' +
+        '.meta-item { display: flex; flex-direction: column; }' +
+        '.meta-label { font-size: 8.5px; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.05em; }' +
+        '.meta-val { font-size: 11px; font-weight: 600; color: #0f172a; margin-top: 1px; }' +
+        '.section-box { border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 14px; page-break-inside: avoid; overflow: hidden; }' +
+        '.section-hdr { background: #0f172a; color: #fff; padding: 6px 10px; font-weight: 700; font-size: 11px; display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; letter-spacing: 0.04em; }' +
+        '.section-hdr.accent { background: #1e293b; }' +
+        'table { width: 100%; border-collapse: collapse; font-size: 10px; }' +
+        'th, td { border: 1px solid #e2e8f0; padding: 4.5px 6px; text-align: left; vertical-align: middle; }' +
+        'th { background: #f1f5f9; font-weight: 700; color: #334155; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.02em; }' +
+        'tr:nth-child(even) { background: #f8fafc; }' +
+        '.badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 8.5px; font-weight: 700; font-family: monospace; }' +
+        '.badge-phantom { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }' +
+        '.badge-stereo { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }' +
+        '.badge-type { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }' +
+        '.specs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 10px; }' +
+        '.spec-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 5px; padding: 8px 10px; }' +
+        '.spec-label { font-weight: 700; font-size: 9.5px; text-transform: uppercase; color: #475569; margin-bottom: 3px; letter-spacing: 0.03em; }' +
+        '.spec-content { font-size: 10.5px; color: #0f172a; white-space: pre-wrap; line-height: 1.4; }' +
+        '.print-footer { margin-top: 16px; border-top: 1px solid #e2e8f0; padding-top: 6px; display: flex; justify-content: space-between; font-size: 9px; color: #64748b; }' +
+        '.no-print { margin-bottom: 14px; }' +
+        '.no-print button { padding: 9px 18px; background: #0f172a; color: #fff; border: none; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }' +
+        '@media print { .no-print { display: none !important; } body { padding: 0; } }' +
+      '</style>' +
+      '</head><body>' +
+        '<div class="no-print">' +
+          '<button onclick="window.print()">' +
+            '<span>🖨️ Print / Save as PDF</span>' +
+          '</button>' +
+        '</div>' +
+        '<div class="print-top">' +
+          '<div>' +
+            '<div class="brand">MERIDIAN ARTS TECHNICAL OPERATIONS</div>' +
+            '<div class="sub-brand">' + ui.esc(subtitle) + '</div>' +
+            '<h1 class="doc-title">' + ui.esc(title) + '</h1>' +
+          '</div>' +
+          '<div class="doc-badge">OFFICIAL SPEC</div>' +
+        '</div>' +
+
+        (meta.length ? (
+          '<div class="meta-grid">' +
+            meta.map((m) => (
+              '<div class="meta-item">' +
+                '<span class="meta-label">' + ui.esc(m.label) + '</span>' +
+                '<span class="meta-val">' + ui.esc(m.val || '—') + '</span>' +
+              '</div>'
+            )).join('') +
+          '</div>'
+        ) : '') +
+
+        sections.map((sec) => (
+          '<div class="section-box">' +
+            '<div class="section-hdr ' + (sec.accent ? 'accent' : '') + '">' +
+              '<span>' + ui.esc(sec.title) + '</span>' +
+              (sec.badge ? '<span class="badge" style="background:#fff;color:#0f172a;">' + ui.esc(sec.badge) + '</span>' : '') +
+            '</div>' +
+            sec.html +
+          '</div>'
+        )).join('') +
+
+        '<div class="print-footer">' +
+          '<span>Meridian Arts Technical Operations \u2014 140 Harbour Quay, Bristol BS1 4TR</span>' +
+          '<span>Generated: ' + new Date().toLocaleString() + '</span>' +
+        '</div>' +
+      '</body></html>';
+
+    win.document.write(html);
+    win.document.close();
+  }
+
+  /* ---- Printable / PDF Export for Patch Sheets with Signal Flow ---- */
+  function printPatchSheet(sheet) {
+    if (!sheet) return;
+    const hr = getHomeRunConfig(sheet);
+    const mapping = computeHomeRunMapping(sheet);
+    const repatches = computeRepatchList(sheet);
+    const totalSockets = (sheet.stageboxes || []).reduce((acc, b) => acc + (b.channels ? b.channels.length : 0), 0);
+
+    const meta = [
+      { label: 'SPACE / VENUE', val: sheet.space || 'Main Hall' },
+      { label: 'DATE', val: sheet.date || 'N/A' },
+      { label: 'LINKED EVENT', val: sheet.eventName || 'Standalone Patch Sheet' },
+      { label: 'HOME RUN TRUNK', val: (hr.name || 'Main Stage Rack') + ' (' + (hr.inputChannels || 32) + ' In / ' + (hr.outputChannels || 16) + ' Out)' }
+    ];
+    if (sheet.notes) meta.push({ label: 'NOTES / STRATEGY', val: sheet.notes });
+
+    const sections = [
+      {
+        title: '1. HOME RUN (MAIN I/O) SIGNAL FLOW — ' + (hr.name || 'Main Stage Rack'),
+        badge: mapping.filter((m) => m.isPatched).length + ' / ' + (hr.inputChannels || 32) + ' Patched',
+        html:
+          '<table>' +
+            '<thead><tr><th style="width: 50px;">Home Run</th><th style="width: 90px;">Stagebox</th><th style="width: 90px;">Location</th><th style="width: 110px;">Act / Artist</th><th>Instrument / Source</th><th>Mic / DI Model</th><th style="width: 45px;">+48V</th><th>Changeover Repatch</th></tr></thead>' +
+            '<tbody>' +
+              mapping.map((m) => {
+                const prim = m.primarySocket;
+                return (
+                  '<tr class="' + (m.isCollision ? 'collision' : '') + '">' +
+                    '<td style="font-weight: bold; font-family: monospace;">' + m.label + '</td>' +
+                    '<td style="font-weight: bold; font-family: monospace;">' + (prim ? 'Box ' + prim.boxLetter + ' Skt ' + prim.socket : '<span style="color: #999; font-weight: normal;">\u2014 Open \u2014</span>') + '</td>' +
+                    '<td>' + (prim ? ui.esc(prim.boxLocation) : '\u2014') + '</td>' +
+                    '<td>' + (prim ? ui.esc(prim.actName) : '\u2014') + '</td>' +
+                    '<td><b>' + (prim ? ui.esc(prim.instrument || 'Line') : '<span style="color: #999; font-weight: normal;">Spare</span>') + '</b></td>' +
+                    '<td>' + (prim ? ui.esc(prim.mic || '\u2014') : '\u2014') + '</td>' +
+                    '<td>' + (prim && prim.phantom ? '<span class="badge badge-phantom">+48V</span>' : '') + '</td>' +
+                    '<td>' + (m.isCollision ? '<b>COLLISION: ' + m.assignedSockets.map((as) => 'Box ' + as.boxLetter + ' Skt ' + as.socket).join(' & ') + '</b>' : (prim && prim.repatch ? ui.esc(prim.repatchTo || 'Repatch between acts') : '\u2014')) + '</td>' +
+                  '</tr>'
+                );
+              }).join('') +
+            '</tbody>' +
+          '</table>'
+      },
+      {
+        title: '2. STAGEBOX & SUB-SNAKE SOCKET MAPPINGS (' + (sheet.stageboxes ? sheet.stageboxes.length : 0) + ' BOXES / ' + totalSockets + ' SOCKETS)',
+        html: (sheet.stageboxes || []).map((box) => (
+          '<div style="padding: 6px 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-weight: bold; display: flex; justify-content: space-between;">' +
+            '<span>Stagebox ' + ui.esc(box.letter) + ' \u2014 ' + ui.esc(box.name) + ' (' + ui.esc(box.location) + ')</span>' +
+            '<span>' + (box.channels ? box.channels.length : 0) + ' Sockets</span>' +
+          '</div>' +
+          '<table>' +
+            '<thead><tr><th style="width: 45px;">Socket</th><th style="width: 110px;">Act / Artist</th><th>Instrument / Source</th><th>Mic / DI Model</th><th style="width: 45px;">+48V</th><th style="width: 75px;">Home Run</th><th>Changeover Repatch</th></tr></thead>' +
+            '<tbody>' +
+              (box.channels || []).map((ch) => {
+                const act = (sheet.acts || []).find((a) => a.id === ch.actId);
+                const hrLabel = ch.homeRunCh ? (hr.prefix || 'HR') + ' ' + (ch.homeRunCh < 10 ? '0' + ch.homeRunCh : ch.homeRunCh) : '\u2014';
+                return (
+                  '<tr>' +
+                    '<td style="font-weight: bold; font-family: monospace;">' + (box.letter || '') + ch.socket + '</td>' +
+                    '<td>' + (act ? ui.esc(act.name) : 'House') + '</td>' +
+                    '<td><b>' + ui.esc(ch.instrument || '\u2014') + '</b></td>' +
+                    '<td>' + ui.esc(ch.mic || '\u2014') + '</td>' +
+                    '<td>' + (ch.phantom ? '<span class="badge badge-phantom">+48V</span>' : '') + '</td>' +
+                    '<td style="font-family: monospace; font-weight: bold; color: #0284c7;">' + hrLabel + '</td>' +
+                    '<td>' + (ch.repatch ? ui.esc(ch.repatchTo || 'Repatch between acts') : '\u2014') + '</td>' +
+                  '</tr>'
+                );
+              }).join('') +
+            '</tbody>' +
+          '</table>'
+        )).join('')
+      }
+    ];
+
+    if (repatches.length) {
+      // Group by Transition (From Act -> To Act)
+      const transitions = {};
+      repatches.forEach(r => {
+        const key = r.fromAct + '|||' + r.toAct;
+        if (!transitions[key]) transitions[key] = [];
+        transitions[key].push(r);
+      });
+
+      sections.push({
+        title: '3. STAGE CHANGEOVER & REPATCH CUE SHEET (' + repatches.length + ' OPERATIONS)',
+        html: Object.keys(transitions).map((key) => {
+          const [fromAct, toAct] = key.split('|||');
+          const items = transitions[key];
+          return '<div style="margin-bottom: 24px;">' +
+            '<h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #334155; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px;">' +
+              'CHANGEOVER: ' + ui.esc(fromAct) + ' \u2192 ' + ui.esc(toAct) +
+            '</h4>' +
+            '<table>' +
+              '<thead><tr><th style="width: 140px;">Socket</th><th style="width: 100px;">Home Run</th><th style="width: 150px;">Location</th><th>Unplug</th><th style="width: 30px;"></th><th>Plug In</th></tr></thead>' +
+              '<tbody>' +
+                items.map((r) => {
+                  const hrLabel = r.homeRunCh ? (hr.prefix || 'HR') + ' ' + (r.homeRunCh < 10 ? '0' + r.homeRunCh : r.homeRunCh) : '\u2014';
+                  return (
+                    '<tr>' +
+                      '<td style="font-weight: bold; font-family: monospace;">Box ' + r.stageboxLetter + ' Ch ' + r.socket + '</td>' +
+                      '<td style="font-family: monospace; font-weight: bold; color: #0284c7;">' + hrLabel + '</td>' +
+                      '<td>' + ui.esc(r.stageboxLocation) + '</td>' +
+                      '<td style="text-decoration: line-through; color: #64748b;">' + ui.esc(r.fromInst) + '</td>' +
+                      '<td style="color: #b45309; text-align: center; font-weight: bold;">\u2192</td>' +
+                      '<td style="font-weight: bold;">' + ui.esc(r.toInst) + (r.mic ? ' (' + ui.esc(r.mic) + ')' : '') + '</td>' +
+                    '</tr>'
+                  );
+                }).join('') +
+              '</tbody>' +
+            '</table>' +
+          '</div>';
+        }).join('')
+      });
+    }
+
+    openPrintDocument({
+      title: sheet.name,
+      subtitle: 'Event Stagebox Patch Sheet & Signal Flow',
+      meta: meta,
+      sections: sections
+    });
+  }
+
+  /* ---- Dedicated PDF Printers for Individual Aspects and Complete Tech Spec ---- */
+  function printInputPatch(title, meta, channels) {
+    const chList = Array.isArray(channels) ? channels : [];
+    const phantomCount = chList.filter((c) => c.phantom).length;
+
+    openPrintDocument({
+      title: title || 'Channel Input List & Patch Sheet',
+      subtitle: 'Aspect 1: Input Channel Patch & Mic Specification',
+      meta: (meta || []).concat([
+        { label: 'TOTAL CHANNELS', val: chList.length + ' Inputs' },
+        { label: 'PHANTOM POWER', val: phantomCount + ' (+48V Active)' }
+      ]),
+      sections: [
+        {
+          title: 'CHANNEL INPUT LIST & MICROPHONE SPECIFICATION (' + chList.length + ' CHANNELS)',
+          badge: phantomCount + 'x +48V',
+          html:
+            '<table>' +
+              '<thead><tr><th style="width: 35px;">Ch</th><th style="width: 140px;">Instrument / Source</th><th style="width: 140px;">Mic / DI Model</th><th style="width: 100px;">Stand Type</th><th style="width: 110px;">Stage Position</th><th style="width: 45px;">+48V</th><th>Notes / Routing</th></tr></thead>' +
+              '<tbody>' +
+                (chList.length ? (
+                  chList.map((ch, idx) => (
+                    '<tr>' +
+                      '<td style="font-weight: bold; font-family: monospace;">' + (ch.channel || (idx + 1)) + '</td>' +
+                      '<td><b>' + ui.esc(ch.instrument || 'Line Input') + '</b></td>' +
+                      '<td>' + ui.esc(ch.mic || 'Direct / Line') + '</td>' +
+                      '<td>' + ui.esc(ch.stand || 'N/A') + '</td>' +
+                      '<td>' + ui.esc(ch.pos || 'Stage') + '</td>' +
+                      '<td>' + (ch.phantom ? '<span class="badge badge-phantom">+48V</span>' : '') + '</td>' +
+                      '<td>' + ui.esc(ch.notes || '') + '</td>' +
+                    '</tr>'
+                  )).join('')
+                ) : '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:12px;">No input channels defined.</td></tr>') +
+              '</tbody>' +
+            '</table>'
+        }
+      ]
+    });
+  }
+
+  function printOutputPatch(title, meta, channels) {
+    const outList = Array.isArray(channels) ? channels : [];
+    const wedgeCount = outList.filter((o) => o.type === 'Wedge').length;
+    const iemCount = outList.filter((o) => o.type === 'IEM' || o.stereo).length;
+
+    openPrintDocument({
+      title: title || 'Output & Monitor Patch Matrix',
+      subtitle: 'Aspect 2: Stage Monitor & Routing Specification',
+      meta: (meta || []).concat([
+        { label: 'TOTAL MIXES', val: outList.length + ' Outputs' },
+        { label: 'MONITOR BREAKDOWN', val: wedgeCount + ' Wedges, ' + iemCount + ' IEMs/Feeds' }
+      ]),
+      sections: [
+        {
+          title: 'MONITOR & OUTPUT PATCH MATRIX (' + outList.length + ' OUTPUTS)',
+          badge: wedgeCount + ' Wedges / ' + iemCount + ' IEMs',
+          html:
+            '<table>' +
+              '<thead><tr><th style="width: 35px;">Out</th><th style="width: 160px;">Mix Name / Musician</th><th style="width: 100px;">Mix Type</th><th style="width: 140px;">Stage Destination / TX</th><th style="width: 60px;">Format</th><th>Routing / Level Notes</th></tr></thead>' +
+              '<tbody>' +
+                (outList.length ? (
+                  outList.map((out, idx) => (
+                    '<tr>' +
+                      '<td style="font-weight: bold; font-family: monospace;">' + (out.num || (idx + 1)) + '</td>' +
+                      '<td><b>' + ui.esc(out.name || 'Mix ' + (idx + 1)) + '</b></td>' +
+                      '<td><span class="badge badge-type">' + ui.esc(out.type || 'Wedge') + '</span></td>' +
+                      '<td>' + ui.esc(out.dest || 'Stage') + '</td>' +
+                      '<td>' + (out.stereo ? '<span class="badge badge-stereo">STEREO</span>' : 'Mono') + '</td>' +
+                      '<td>' + ui.esc(out.notes || '') + '</td>' +
+                    '</tr>'
+                  )).join('')
+                ) : '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:12px;">No output mixes defined.</td></tr>') +
+              '</tbody>' +
+            '</table>'
+        }
+      ]
+    });
+  }
+
+  function printProductionSpecs(title, meta, specs) {
+    const sp = specs || {};
+    openPrintDocument({
+      title: title || 'Technical & Stage Specifications',
+      subtitle: 'Aspect 3: Venue Production Requirements & Rider Specs',
+      meta: meta || [],
+      sections: [
+        {
+          title: 'STAGE, POWER, CONSOLE & ATMOSPHERIC SPECIFICATIONS',
+          html:
+            '<div class="specs-grid">' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">⚡ AC Power & Stage Drops</div>' +
+                '<div class="spec-content">' + ui.esc(sp.power || '—') + '</div>' +
+              '</div>' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">🎛️ FOH & Monitor Console Architecture</div>' +
+                '<div class="spec-content">' + ui.esc(sp.fohDesk || '—') + '</div>' +
+              '</div>' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">📐 Stage Risers & Spatial Dimensions</div>' +
+                '<div class="spec-content">' + ui.esc(sp.stageRisers || '—') + '</div>' +
+              '</div>' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">💡 Lighting & Hazer / FX Authorization</div>' +
+                '<div class="spec-content">' + ui.esc(sp.lightingHazer || '—') + '</div>' +
+              '</div>' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">🎤 Backline & Rigging Allocation</div>' +
+                '<div class="spec-content">' + ui.esc(sp.backline || '—') + '</div>' +
+              '</div>' +
+              '<div class="spec-card">' +
+                '<div class="spec-label">📋 Changeover Protocols & Production Notes</div>' +
+                '<div class="spec-content">' + ui.esc(sp.additionalNotes || '—') + '</div>' +
+              '</div>' +
+            '</div>'
+        }
+      ]
+    });
+  }
+
+  function printTechSpec(specData) {
+    const spec = specData || {};
+    const inputs = Array.isArray(spec.inputs) ? spec.inputs : [];
+    const outputs = Array.isArray(spec.outputs) ? spec.outputs : [];
+    const sp = spec.specs || {};
+
+    const meta = [
+      { label: 'SPACE / VENUE', val: spec.space || '—' },
+      { label: 'DATE', val: spec.date || '—' },
+      { label: 'ARTIST / ACT', val: spec.artist || '—' },
+      { label: 'FOH ENGINEER', val: spec.contactFoh || '—' },
+      { label: 'MONITOR / STAGE TECH', val: spec.contactMon || '—' },
+      { label: 'PRODUCTION CONTACT', val: spec.contactEmail || '—' }
+    ];
+
+    const sections = [
+      {
+        title: 'ASPECT 1: CHANNEL INPUT LIST & PATCH (' + inputs.length + ' CHANNELS)',
+        badge: inputs.filter((c) => c.phantom).length + 'x +48V',
+        html:
+          '<table>' +
+            '<thead><tr><th style="width: 35px;">Ch</th><th style="width: 140px;">Instrument / Source</th><th style="width: 130px;">Mic / DI Model</th><th style="width: 95px;">Stand Type</th><th style="width: 105px;">Stage Position</th><th style="width: 45px;">+48V</th><th>Notes / Routing</th></tr></thead>' +
+            '<tbody>' +
+              (inputs.length ? (
+                inputs.map((ch, idx) => (
+                  '<tr>' +
+                    '<td style="font-weight: bold; font-family: monospace;">' + (ch.channel || (idx + 1)) + '</td>' +
+                    '<td><b>' + ui.esc(ch.instrument || 'Line Input') + '</b></td>' +
+                    '<td>' + ui.esc(ch.mic || 'Direct / Line') + '</td>' +
+                    '<td>' + ui.esc(ch.stand || 'N/A') + '</td>' +
+                    '<td>' + ui.esc(ch.pos || 'Stage') + '</td>' +
+                    '<td>' + (ch.phantom ? '<span class="badge badge-phantom">+48V</span>' : '') + '</td>' +
+                    '<td>' + ui.esc(ch.notes || '') + '</td>' +
+                  '</tr>'
+                )).join('')
+              ) : '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:12px;">No input channels defined.</td></tr>') +
+            '</tbody>' +
+          '</table>'
+      },
+      {
+        title: 'ASPECT 2: MONITOR & OUTPUT PATCH MATRIX (' + outputs.length + ' OUTPUTS)',
+        badge: outputs.filter((o) => o.type === 'Wedge').length + ' Wedges / ' + outputs.filter((o) => o.type === 'IEM' || o.stereo).length + ' IEMs',
+        html:
+          '<table>' +
+            '<thead><tr><th style="width: 35px;">Out</th><th style="width: 160px;">Mix Name / Musician</th><th style="width: 100px;">Mix Type</th><th style="width: 140px;">Stage Destination / TX</th><th style="width: 60px;">Format</th><th>Routing Notes</th></tr></thead>' +
+            '<tbody>' +
+              (outputs.length ? (
+                outputs.map((out, idx) => (
+                  '<tr>' +
+                    '<td style="font-weight: bold; font-family: monospace;">' + (out.num || (idx + 1)) + '</td>' +
+                    '<td><b>' + ui.esc(out.name || 'Mix ' + (idx + 1)) + '</b></td>' +
+                    '<td><span class="badge badge-type">' + ui.esc(out.type || 'Wedge') + '</span></td>' +
+                    '<td>' + ui.esc(out.dest || 'Stage') + '</td>' +
+                    '<td>' + (out.stereo ? '<span class="badge badge-stereo">STEREO</span>' : 'Mono') + '</td>' +
+                    '<td>' + ui.esc(out.notes || '') + '</td>' +
+                  '</tr>'
+                )).join('')
+              ) : '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:12px;">No output mixes defined.</td></tr>') +
+            '</tbody>' +
+          '</table>'
+      },
+      {
+        title: 'ASPECT 3: TECHNICAL & STAGE SPECIFICATIONS',
+        html:
+          '<div class="specs-grid">' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">⚡ AC Power & Stage Drops</div>' +
+              '<div class="spec-content">' + ui.esc(sp.power || '—') + '</div>' +
+            '</div>' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">🎛️ FOH & Monitor Console Architecture</div>' +
+              '<div class="spec-content">' + ui.esc(sp.fohDesk || '—') + '</div>' +
+            '</div>' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">📐 Stage Risers & Spatial Dimensions</div>' +
+              '<div class="spec-content">' + ui.esc(sp.stageRisers || '—') + '</div>' +
+            '</div>' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">💡 Lighting & Hazer / FX Authorization</div>' +
+              '<div class="spec-content">' + ui.esc(sp.lightingHazer || '—') + '</div>' +
+            '</div>' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">🎤 Backline & Rigging Allocation</div>' +
+              '<div class="spec-content">' + ui.esc(sp.backline || '—') + '</div>' +
+            '</div>' +
+            '<div class="spec-card">' +
+              '<div class="spec-label">📋 Changeover Protocols & Production Notes</div>' +
+              '<div class="spec-content">' + ui.esc(sp.additionalNotes || '—') + '</div>' +
+            '</div>' +
+          '</div>'
+      }
+    ];
+
+    openPrintDocument({
+      title: spec.title || 'Technical Rider & Production Specification',
+      subtitle: 'Complete Master Technical Specification Document',
+      meta: meta,
+      sections: sections
+    });
+  }
+
+  function printPreset(preset) {
+    if (!preset) return;
+    const isInput = preset.type === 'input';
+    const channels = Array.isArray(preset.channels) ? preset.channels : [];
+    const meta = [
+      { label: 'PRESET NAME', val: preset.name },
+      { label: 'CATEGORY', val: preset.category || 'General' },
+      { label: 'TYPE', val: isInput ? 'Input Channel Preset' : 'Output / Monitor Preset' },
+      { label: 'CHANNELS', val: channels.length + (isInput ? ' Channels' : ' Outputs') }
+    ];
+    if (preset.description) meta.push({ label: 'DESCRIPTION', val: preset.description });
+
+    if (isInput) {
+      printInputPatch(preset.name + ' — Input Channel Preset', meta, channels);
+    } else {
+      printOutputPatch(preset.name + ' — Output & Monitor Preset', meta, channels);
+    }
+  }
+
+  function printDmxPatchSheet(title, meta, fixtures) {
+    const fixList = Array.isArray(fixtures) ? fixtures : [];
+    const val = RMTP.dmx ? RMTP.dmx.validatePatch(fixList) : { hasErrors: false, universeSummaries: {}, conflictMap: {} };
+    const univKeys = Object.keys(val.universeSummaries || {}).sort((a, b) => +a - +b);
+
+    const sections = [
+      {
+        title: 'DMX LIGHTING FIXTURE PATCH MATRIX (' + fixList.length + ' FIXTURES)',
+        badge: univKeys.length ? univKeys.map((u) => 'Univ ' + u + ': ' + val.universeSummaries[u].totalChannelsUsed + '/512ch').join(' | ') : 'No Universes',
+        html:
+          '<table>' +
+            '<thead><tr><th style="width: 35px;">Unit</th><th style="width: 170px;">Fixture Personality / Profile</th><th>Custom Name / Purpose</th><th style="width: 120px;">Hanging Location</th><th style="width: 45px;">Univ</th><th style="width: 55px;">Start</th><th style="width: 55px;">End</th><th style="width: 45px;">Ch</th></tr></thead>' +
+            '<tbody>' +
+              (fixList.length ? (
+                fixList.map((f, idx) => {
+                  const addr = parseInt(f.address, 10) || 1;
+                  const ch = Math.max(1, parseInt(f.channels, 10) || 1);
+                  const end = addr + ch - 1;
+                  const fixId = f.id || 'fix-' + idx;
+                  const isConflict = val.conflictMap && val.conflictMap[fixId];
+                  return (
+                    '<tr class="' + (isConflict ? 'collision' : '') + '">' +
+                      '<td style="font-weight: bold; font-family: monospace;">#' + (f.unit !== undefined ? f.unit : (idx + 1)) + '</td>' +
+                      '<td><b>' + ui.esc((f.manufacturer ? f.manufacturer + ' ' : '') + (f.model || 'Fixture')) + '</b><div style="font-size: 9px; color: #64748b;">' + ui.esc(f.mode || 'Standard') + '</div></td>' +
+                      '<td>' + ui.esc(f.name || f.model || '\u2014') + '</td>' +
+                      '<td>' + ui.esc(f.location || 'LX1') + '</td>' +
+                      '<td style="text-align: center; font-family: monospace; font-weight: bold;">' + (f.universe || 1) + '</td>' +
+                      '<td style="text-align: center; font-family: monospace; font-weight: bold; color: #0284c7;">' + addr + '</td>' +
+                      '<td style="text-align: center; font-family: monospace; font-weight: bold;">' + end + '</td>' +
+                      '<td style="text-align: center; font-family: monospace;">' + ch + '</td>' +
+                    '</tr>'
+                  );
+                }).join('')
+              ) : '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:12px;">No DMX lighting fixtures patched.</td></tr>') +
+            '</tbody>' +
+          '</table>'
+      }
+    ];
+
+    if (univKeys.length) {
+      sections.push({
+        title: 'UNIVERSE CAPACITY & FOOTPRINT SUMMARY',
+        html:
+          '<table>' +
+            '<thead><tr><th>Universe</th><th>Fixtures Patched</th><th>Channels Used</th><th>Available Capacity</th><th>Address Range Used</th></tr></thead>' +
+            '<tbody>' +
+              univKeys.map((u) => {
+                const s = val.universeSummaries[u];
+                return (
+                  '<tr>' +
+                    '<td style="font-weight: bold; font-family: monospace;">Universe ' + u + '</td>' +
+                    '<td>' + s.fixtureCount + ' fixtures</td>' +
+                    '<td style="font-weight: bold; color: #0284c7;">' + s.totalChannelsUsed + ' / 512 channels (' + Math.round((s.totalChannelsUsed / 512) * 100) + '%)</td>' +
+                    '<td>' + (512 - s.totalChannelsUsed) + ' channels free</td>' +
+                    '<td style="font-family: monospace;">Ch ' + s.minAddress + ' \u2013 ' + s.maxAddress + '</td>' +
+                  '</tr>'
+                );
+              }).join('') +
+            '</tbody>' +
+          '</table>'
+      });
+    }
+
+    openPrintDocument({
+      title: title || 'DMX Lighting Patch Sheet',
+      subtitle: 'Lighting Rig Architecture & DMX Universe Assignments',
+      meta: meta || [],
+      sections: sections
+    });
+  }
+
+  function renderSaveRoomIOModal(sheet) {
+    const m = ui.modal('Save Room I/O Preset', 
+      '<div class="flex flex-col gap-4 max-w-md">' +
+        '<div class="text-sm text-muted">Save the current Home Run matrix, output patching, and connected stageboxes as a reusable preset for a specific room or venue space. Repatch layers and act assignments are not saved.</div>' +
+        '<div class="grid gap-1.5">' +
+          '<label class="text-[10px] uppercase font-bold text-muted">Room / Space Name</label>' +
+          '<input type="text" id="rio-space-name" class="field" value="' + ui.esc(sheet.space || 'Main Hall') + '" placeholder="e.g. Main Hall, Studio Theatre" />' +
+        '</div>' +
+        '<div class="flex justify-end gap-2 mt-4 pt-4 border-t border-line">' +
+          '<button type="button" id="rio-cancel" class="btn btn-ghost">Cancel</button>' +
+          '<button type="button" id="rio-save" class="btn btn-primary">Save I/O Preset</button>' +
+        '</div>' +
+      '</div>'
+    );
+    
+    m.root.querySelector('#rio-cancel').onclick = m.close;
+    m.root.querySelector('#rio-save').onclick = () => {
+      const spaceName = m.root.querySelector('#rio-space-name').value.trim();
+      if (!spaceName) return ui.toast('Please enter a room name', 'error');
+      
+      // Filter out repatch layers, only save original physical sockets (layer 0)
+      const presetBoxes = sheet.stageboxes.map(box => {
+        const clonedBox = JSON.parse(JSON.stringify(box));
+        clonedBox.channels = clonedBox.channels.filter(ch => !ch.repatch);
+        return clonedBox;
+      });
+      
+      saveRoomIOPreset({
+        space: spaceName,
+        homeRun: sheet.homeRun,
+        stageboxes: presetBoxes
+      });
+      
+      ui.toast('Saved Room I/O Preset: ' + spaceName, 'ok');
+      m.close();
+    };
+  }
+
+  return {
+    getAllPresets,
+    getInputs,
+    getOutputs,
+    getPreset,
+    savePreset,
+    removePreset,
+    resetPresetDefaults,
+    getAllPatchSheets,
+    getPatchSheet,
+    savePatchSheet,
+    removePatchSheet,
+    computeRepatchList,
+    computeHomeRunMapping,
+    computeUnassignedSockets,
+    autoPatchHomeRun,
+    clearHomeRunPatches,
+    getHomeRunConfig,
+    openEditorModal,
+    openSaveAsModal,
+    openPatchSheetModal,
+    printPatchSheet,
+    printTechSpec,
+    printInputPatch,
+    printOutputPatch,
+    printProductionSpecs,
+    printPreset,
+    printDmxPatchSheet,
+    STAGE_LOCATIONS,
+    ACT_COLORS,
+    HOME_RUN_TYPES,
+    HOME_RUN_PRESETS
+  };
+})();
+
+/* ============================================================
+   RMTP.views.presets — Main Presets & Patch Sheets Management Page
+   ============================================================ */
+RMTP.views.presets = function (contentEl) {
+  const ui = RMTP.ui;
+  const store = RMTP.store;
+  const presetsApi = RMTP.presets;
+
+  // 4 Primary Menu Views:
+  // 1. 'sheets'  -> Event Patch Sheets & Stagebox Signal Flow
+  // 2. 'library' -> Standalone Presets Library (Inputs & Outputs)
+  // 3. 'builder' -> Tech Spec Builder (Inputs, Outputs & Production Specs)
+  // 4. 'dmx'     -> DMX Lighting Patch Sheet & Fixture Engine
+  let activeMainView = (RMTP._presetsMainView !== undefined ? RMTP._presetsMainView : 'sheets');
+  let activeFilterTab = 'all'; // 'all', 'input', 'output'
+  let activeDmxUniverse = 'all'; // 'all', '1', '2', etc.
+  let searchQuery = '';
+
+  // Built-in Lighting Rig Presets / Templates
+  const BUILTIN_DMX_TEMPLATES = [
+    {
+      id: 'tmpl-stage-standard',
+      name: 'Main Hall — Standard House Rig (8 Fixtures)',
+      space: 'Main Hall',
+      notes: '3x Spiider Wash, 2x Pointe Beams, 2x COLORado Pars, 1x ETC Lustr Key',
+      fixtures: [
+        { id: 'f-1', unit: 1, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Back Wash SL', location: 'LX1', universe: 1, address: 1 },
+        { id: 'f-2', unit: 2, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Back Wash CS', location: 'LX1', universe: 1, address: 28 },
+        { id: 'f-3', unit: 3, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Back Wash SR', location: 'LX1', universe: 1, address: 55 },
+        { id: 'f-4', unit: 4, personalityId: 'fix-robe-pointe-16', manufacturer: 'Robe', model: 'Pointe', mode: 'Mode 1 (Standard Beam/Spot)', channels: 16, name: 'Mid Beam SL', location: 'LX2', universe: 1, address: 82 },
+        { id: 'f-5', unit: 5, personalityId: 'fix-robe-pointe-16', manufacturer: 'Robe', model: 'Pointe', mode: 'Mode 1 (Standard Beam/Spot)', channels: 16, name: 'Mid Beam SR', location: 'LX2', universe: 1, address: 98 },
+        { id: 'f-6', unit: 6, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Side Warm SL', location: 'LX3', universe: 1, address: 114 },
+        { id: 'f-7', unit: 7, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Side Warm SR', location: 'LX3', universe: 1, address: 126 },
+        { id: 'f-8', unit: 8, personalityId: 'fix-etc-s4-led-s3-10', manufacturer: 'ETC', model: 'Source Four LED Series 3', mode: 'Lustr X8 Direct (10ch)', channels: 10, name: 'FOH Key Special CS', location: 'FOH Truss', universe: 1, address: 138 }
+      ]
+    },
+    {
+      id: 'tmpl-studio-acoustic',
+      name: 'Studio Theatre — Acoustic & Intimate Rig (6 Fixtures)',
+      space: 'Studio Theatre',
+      notes: '4x COLORado Pars, 2x ETC Source 4 Lustr profiles',
+      fixtures: [
+        { id: 'f-1', unit: 1, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Warm Wash SL', location: 'Overhead 1', universe: 1, address: 1 },
+        { id: 'f-2', unit: 2, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Warm Wash CS', location: 'Overhead 1', universe: 1, address: 13 },
+        { id: 'f-3', unit: 3, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Warm Wash SR', location: 'Overhead 1', universe: 1, address: 25 },
+        { id: 'f-4', unit: 4, personalityId: 'fix-chauvet-colorado-1-quad-12', manufacturer: 'Chauvet Professional', model: 'COLORado 1-Quad Zoom', mode: 'TOUR (12ch)', channels: 12, name: 'Floor Uplight CS', location: 'Floor USC', universe: 1, address: 37 },
+        { id: 'f-5', unit: 5, personalityId: 'fix-etc-s4-led-s3-10', manufacturer: 'ETC', model: 'Source Four LED Series 3', mode: 'Lustr X8 Direct (10ch)', channels: 10, name: 'Key Light Left', location: 'FOH Bar', universe: 1, address: 49 },
+        { id: 'f-6', unit: 6, personalityId: 'fix-etc-s4-led-s3-10', manufacturer: 'ETC', model: 'Source Four LED Series 3', mode: 'Lustr X8 Direct (10ch)', channels: 10, name: 'Key Light Right', location: 'FOH Bar', universe: 1, address: 59 }
+      ]
+    },
+    {
+      id: 'tmpl-club-multi-univ',
+      name: 'Club & Live FX Rig — 2 Universes (8 Fixtures + Tubes)',
+      space: 'Main Hall',
+      notes: 'Universe 1: Moving heads & Stage Wash. Universe 2: Astera Titan pixel tubes.',
+      fixtures: [
+        { id: 'f-1', unit: 1, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Wash Back SL', location: 'LX1', universe: 1, address: 1 },
+        { id: 'f-2', unit: 2, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Wash Back CS', location: 'LX1', universe: 1, address: 28 },
+        { id: 'f-3', unit: 3, personalityId: 'fix-robe-spiider-27', manufacturer: 'Robe', model: 'Spiider', mode: 'Mode 1 (Standard Wash/Beam)', channels: 27, name: 'Wash Back SR', location: 'LX1', universe: 1, address: 55 },
+        { id: 'f-4', unit: 4, personalityId: 'fix-robe-pointe-16', manufacturer: 'Robe', model: 'Pointe', mode: 'Mode 1 (Standard Beam/Spot)', channels: 16, name: 'Spot Mid SL', location: 'LX2', universe: 1, address: 82 },
+        { id: 'f-5', unit: 5, personalityId: 'fix-robe-pointe-16', manufacturer: 'Robe', model: 'Pointe', mode: 'Mode 1 (Standard Beam/Spot)', channels: 16, name: 'Spot Mid SR', location: 'LX2', universe: 1, address: 98 },
+        { id: 'f-6', unit: 6, personalityId: 'fix-astera-titan-16px', manufacturer: 'Astera', model: 'Titan Tube (FP1)', mode: '16 Pixels RGB (48ch)', channels: 48, name: 'Titan Tube 1', location: 'Floor SL', universe: 2, address: 1 },
+        { id: 'f-7', unit: 7, personalityId: 'fix-astera-titan-16px', manufacturer: 'Astera', model: 'Titan Tube (FP1)', mode: '16 Pixels RGB (48ch)', channels: 48, name: 'Titan Tube 2', location: 'Floor CS', universe: 2, address: 49 },
+        { id: 'f-8', unit: 8, personalityId: 'fix-astera-titan-16px', manufacturer: 'Astera', model: 'Titan Tube (FP1)', mode: '16 Pixels RGB (48ch)', channels: 48, name: 'Titan Tube 3', location: 'Floor SR', universe: 2, address: 97 }
+      ]
+    }
+  ];
+
+  // Initialize or restore active DMX Lighting Patch State
+  if (!RMTP._dmxPatchState) {
+    const saved = (store && typeof store.read === 'function') ? store.read('dmx_active_patch', null) : null;
+    if (saved && Array.isArray(saved.fixtures)) {
+      RMTP._dmxPatchState = saved;
+    } else {
+      RMTP._dmxPatchState = JSON.parse(JSON.stringify(BUILTIN_DMX_TEMPLATES[0]));
+      RMTP._dmxPatchState.title = 'Main Stage Lighting Rig Patch';
+      RMTP._dmxPatchState.date = '';
+      RMTP._dmxPatchState.eventId = '';
+      RMTP._dmxPatchState.eventName = '';
+    }
+  }
+
+  function getDmxPatch() {
+    return RMTP._dmxPatchState;
+  }
+
+  // Initialize or restore active Tech Spec Builder State
+  if (!RMTP._techSpecState) {
+    RMTP._techSpecState = {
+      title: '',
+      artist: '',
+      space: '',
+      date: '',
+      eventId: '',
+      eventName: '',
+      contactFoh: '',
+      contactMon: '',
+      contactArtist: '',
+      contactEmail: '',
+      inputs: [],
+      outputs: [],
+      specs: {
+        power: '',
+        fohDesk: '',
+        monDesk: '',
+        stageRisers: '',
+        lightingHazer: '',
+        backline: '',
+        additionalNotes: ''
+      }
+    };
+  }
+
+  function getTechSpec() {
+    return RMTP._techSpecState;
+  }
+
+  function render() {
+    RMTP._presetsMainView = activeMainView;
+
+    const allPresets = presetsApi.getAllPresets();
+    const allSheets = presetsApi.getAllPatchSheets();
+    const advanceEvents = (RMTP.getUpcomingActiveEvents ? RMTP.getUpcomingActiveEvents(spec.eventId) : []);
+    const dmxPatch = getDmxPatch();
+    const dmxFixtures = Array.isArray(dmxPatch.fixtures) ? dmxPatch.fixtures : [];
+
+    const filteredPresets = allPresets.filter((p) => {
+      if (activeFilterTab === 'input' && p.type !== 'input') return false;
+      if (activeFilterTab === 'output' && p.type !== 'output') return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const inName = (p.name || '').toLowerCase().includes(q);
+        const inCat = (p.category || '').toLowerCase().includes(q);
+        const inDesc = (p.description || '').toLowerCase().includes(q);
+        const inCh = Array.isArray(p.channels) && p.channels.some((c) =>
+          ((c.instrument || '') + ' ' + (c.mic || '') + ' ' + (c.name || '') + ' ' + (c.dest || '')).toLowerCase().includes(q)
+        );
+        if (!inName && !inCat && !inDesc && !inCh) return false;
+      }
+      return true;
+    });
+
+    const filteredSheets = allSheets.filter((s) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      const inName = (s.name || '').toLowerCase().includes(q);
+      const inEvent = (s.eventName || '').toLowerCase().includes(q);
+      const inSpace = (s.space || '').toLowerCase().includes(q);
+      const inNotes = (s.notes || '').toLowerCase().includes(q);
+      const inBoxes = Array.isArray(s.stageboxes) && s.stageboxes.some((b) =>
+        (b.name || '').toLowerCase().includes(q) || (b.location || '').toLowerCase().includes(q) ||
+        (Array.isArray(b.channels) && b.channels.some((c) => (c.instrument || '').toLowerCase().includes(q) || (c.mic || '').toLowerCase().includes(q)))
+      );
+      return inName || inEvent || inSpace || inNotes || inBoxes;
+    });
+
+    const spec = getTechSpec();
+    const phantomCount = (spec.inputs || []).filter((c) => c.phantom).length;
+    const wedgeCount = (spec.outputs || []).filter((o) => o.type === 'Wedge').length;
+    const iemCount = (spec.outputs || []).filter((o) => o.type === 'IEM' || o.stereo).length;
+
+    contentEl.innerHTML =
+      '<div class="grid gap-6">' +
+        // Page Header
+        '<div class="flex flex-wrap items-center justify-between gap-3">' +
+          '<div>' +
+            '<h2 class="text-2xl font-bold tracking-tight text-ink">Patch & Preset Manager</h2>' +
+            '<p class="text-sm text-muted">Plan stageboxes, assign act channels, track changeover repatches, and assemble complete technical riders.</p>' +
+          '</div>' +
+          '<div class="flex items-center gap-2 flex-wrap">' +
+            '<button id="btn-create-sheet-top" class="btn btn-primary text-xs font-semibold flex items-center gap-1.5 shadow-sm">' +
+              ui.icon('plus', 'w-4 h-4') + '<span>New Event Patch Sheet</span>' +
+            '</button>' +
+            '<button id="btn-reset-presets-all" class="btn btn-ghost text-xs text-muted hover:text-ink flex items-center gap-1" title="Restore factory defaults">' +
+              ui.icon('reset', 'w-3.5 h-3.5') + '<span>Reset Defaults</span>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+
+        // 4 Primary Menu Options Tab Navigation
+        '<div class="panel p-2 flex flex-wrap items-center justify-between gap-3 bg-panel2/60 border border-line">' +
+          '<div class="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1 scrollbar-hide -mx-1 px-1 sm:mx-0 sm:px-0">' +
+            '<button data-main-view="sheets" class="shrink-0 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 ' + (activeMainView === 'sheets' ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              ui.icon('box', 'w-4 h-4') +
+              '<span>1. Event Patch Sheets (' + allSheets.length + ')</span>' +
+            '</button>' +
+            '<button data-main-view="library" class="shrink-0 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 ' + (activeMainView === 'library' ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              ui.icon('sliders', 'w-4 h-4') +
+              '<span>2. Presets Library (' + allPresets.length + ')</span>' +
+            '</button>' +
+            '<button data-main-view="builder" class="shrink-0 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 ' + (activeMainView === 'builder' ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              ui.icon('sliders', 'w-4 h-4') +
+              '<span>3. Tech Spec Builder</span>' +
+            '</button>' +
+            '<button data-main-view="dmx" class="shrink-0 px-3.5 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 ' + (activeMainView === 'dmx' ? 'bg-accent text-accent-ink shadow-xs' : 'text-muted hover:text-ink hover:bg-panel') + '">' +
+              ui.icon('bulb', 'w-4 h-4') +
+              '<span>4. DMX Lighting Patch (' + dmxFixtures.length + ')</span>' +
+            '</button>' +
+          '</div>' +
+          (activeMainView === 'sheets' || activeMainView === 'library' ? (
+            '<div class="relative w-full sm:w-64">' +
+              '<span class="absolute inset-y-0 left-0 pl-2.5 flex items-center text-muted pointer-events-none">' + ui.icon('search', 'w-4 h-4') + '</span>' +
+              '<input id="presets-search-inp" class="field !py-1.5 !pl-8 text-xs w-full bg-panel" placeholder="Search patches, mics, acts\u2026" value="' + ui.esc(searchQuery) + '" />' +
+            '</div>'
+          ) : activeMainView === 'dmx' ? (
+            '<div class="flex items-center gap-2 flex-wrap">' +
+              '<button id="btn-top-dmx-export-csv" class="btn btn-ghost text-xs font-semibold flex items-center gap-1 border border-line text-ink hover:text-accent">' +
+                ui.icon('download', 'w-3.5 h-3.5') + '<span>Export CSV</span>' +
+              '</button>' +
+              '<button id="btn-top-dmx-print" class="btn btn-primary text-xs font-semibold flex items-center gap-1.5 shadow-sm">' +
+                ui.icon('print', 'w-3.5 h-3.5') + '<span>Print DMX Patch PDF</span>' +
+              '</button>' +
+            '</div>'
+          ) : (
+            '<div class="flex items-center gap-2 flex-wrap">' +
+              '<button id="btn-print-full-spec" class="btn btn-primary text-xs font-semibold flex items-center gap-1.5 shadow-sm">' +
+                ui.icon('print', 'w-3.5 h-3.5') + '<span>Print Full Tech Spec PDF</span>' +
+              '</button>' +
+            '</div>'
+          )) +
+        '</div>' +
+
+        // VIEW 1: EVENT PATCH SHEETS
+        (activeMainView === 'sheets' ? (
+          '<div class="grid gap-4">' +
+            '<div class="flex items-center justify-between">' +
+              '<div class="text-xs text-muted font-medium">' +
+                'Stagebox routing plans with act color coding and live changeover repatches' +
+              '</div>' +
+              '<button id="btn-new-patch-sheet" class="btn btn-primary !py-1.5 !px-3 text-xs font-semibold flex items-center gap-1.5">' +
+                ui.icon('plus', 'w-4 h-4') + '<span>Create Patch Sheet</span>' +
+              '</button>' +
+            '</div>' +
+
+            (!filteredSheets.length ? (
+              '<div class="panel p-12 text-center text-muted flex flex-col items-center justify-center gap-3">' +
+                '<div class="w-12 h-12 rounded-full bg-panel2 flex items-center justify-center text-muted">' + ui.icon('box', 'w-6 h-6') + '</div>' +
+                '<p class="text-sm font-bold text-ink">No Patch Sheets Found</p>' +
+                '<p class="text-xs max-w-sm">Create an event patch sheet to map acts to stageboxes and generate repatch lists for technicians.</p>' +
+                '<button id="btn-empty-create-sheet" class="btn btn-primary text-xs mt-2">' + ui.icon('plus', 'w-4 h-4') + ' Create First Patch Sheet</button>' +
+              '</div>'
+            ) : (
+              '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+                filteredSheets.map((sheet) => {
+                  const repatches = presetsApi.computeRepatchList(sheet);
+                  const totalSockets = (sheet.stageboxes || []).reduce((acc, b) => acc + (b.channels ? b.channels.length : 0), 0);
+                  return (
+                    '<div class="panel p-5 flex flex-col justify-between gap-4 border border-line hover:border-accent/50 transition-colors shadow-sm relative group">' +
+                      '<div>' +
+                        '<div class="flex items-start justify-between gap-2 mb-2">' +
+                          '<div>' +
+                            '<div class="flex items-center gap-2 mb-1 flex-wrap">' +
+                              '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider font-mono bg-accent/15 border border-accent/40 text-accent">' +
+                                ui.esc(sheet.space || 'Main Hall') +
+                              '</span>' +
+                              (sheet.date ? '<span class="px-2 py-0.5 rounded bg-panel2 border border-line text-[10px] font-mono text-muted">' + ui.esc(sheet.date) + '</span>' : '') +
+                              (repatches.length ? '<span class="px-2 py-0.5 rounded bg-warning/15 border border-warning/40 text-warning text-[10px] font-bold flex items-center gap-1">' + ui.icon('alert', 'w-3 h-3') + repatches.length + ' Repatches</span>' : '') +
+                            '</div>' +
+                            '<h3 class="text-base font-bold text-ink">' + ui.esc(sheet.name) + '</h3>' +
+                            (sheet.eventName ? '<p class="text-xs text-accent font-semibold flex items-center gap-1 mt-0.5">' + ui.icon('clip', 'w-3 h-3') + ui.esc(sheet.eventName) + '</p>' : '') +
+                          '</div>' +
+                          '<span class="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-panel2 border border-line text-ink shrink-0">' +
+                            (sheet.stageboxes ? sheet.stageboxes.length : 0) + ' Boxes (' + totalSockets + ' Ch)' +
+                          '</span>' +
+                        '</div>' +
+                        (sheet.notes ? '<p class="text-xs text-muted mb-3 leading-relaxed">' + ui.esc(sheet.notes) + '</p>' : '') +
+
+                        // Home Run Pill
+                        (() => {
+                          const hr = presetsApi.getHomeRunConfig(sheet);
+                          const mapping = presetsApi.computeHomeRunMapping(sheet);
+                          const patchedCount = mapping.filter((m) => m.isPatched).length;
+                          const collisions = mapping.filter((m) => m.isCollision).length;
+                          return (
+                            '<div class="p-2 rounded-lg bg-panel2/60 border border-line flex items-center justify-between text-xs mb-2.5 flex-wrap gap-1">' +
+                              '<div class="flex items-center gap-1.5 font-semibold text-ink">' +
+                                '<span class="text-accent">' + ui.icon('sliders', 'w-3.5 h-3.5') + '</span>' +
+                                '<span>' + ui.esc(hr.name || 'Home Run Rack') + '</span>' +
+                                '<span class="text-[10px] font-mono text-muted">(' + (hr.inputChannels || 32) + ' in / ' + (hr.outputChannels || 16) + ' out)</span>' +
+                              '</div>' +
+                              '<div class="flex items-center gap-1.5">' +
+                                '<span class="font-mono text-[11px] font-bold ' + (patchedCount > 0 ? 'text-accent' : 'text-muted') + '">' + patchedCount + ' / ' + (hr.inputChannels || 32) + ' Patched</span>' +
+                                (collisions > 0 ? '<span class="px-1.5 py-0.2 rounded bg-danger text-white text-[10px] font-bold">Collision</span>' : '') +
+                              '</div>' +
+                            '</div>'
+                          );
+                        })() +
+
+                        // Stagebox chips
+                        '<div class="flex flex-wrap gap-1.5 pt-2 border-t border-line/60">' +
+                          (sheet.stageboxes || []).map((b) => (
+                            '<span class="px-2 py-0.5 rounded bg-panel border border-line text-[11px] font-mono font-semibold flex items-center gap-1">' +
+                              '<b class="text-accent">Box ' + ui.esc(b.letter) + '</b> ' + ui.esc(b.location || b.name) + ' (' + (b.channels ? b.channels.length : 0) + 'ch)' +
+                            '</span>'
+                          )).join('') +
+                        '</div>' +
+
+                        // Acts chips
+                        '<div class="flex flex-wrap gap-1.5 pt-2 mt-2 border-t border-line/60">' +
+                          (sheet.acts || []).map((a) => {
+                            const col = presetsApi.ACT_COLORS.find((c) => c.id === a.color) || presetsApi.ACT_COLORS[0];
+                            return (
+                              '<span class="px-2 py-0.5 rounded text-[10px] font-bold border ' + col.border + ' ' + col.bg + ' ' + col.text + '">' +
+                                ui.esc(a.name) +
+                              '</span>'
+                            );
+                          }).join('') +
+                        '</div>' +
+                      '</div>' +
+
+                      // Action bar
+                      '<div class="flex items-center justify-between pt-3 border-t border-line/60 gap-2 flex-wrap">' +
+                        '<button data-sheet-print="' + sheet.id + '" class="btn btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 text-muted hover:text-ink">' +
+                          ui.icon('print', 'w-3.5 h-3.5') + '<span>Print / PDF</span>' +
+                        '</button>' +
+                        '<div class="flex items-center gap-1.5 flex-wrap">' +
+                          '<button data-sheet-flow="' + sheet.id + '" class="btn btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 text-accent font-semibold border border-accent/30 hover:bg-accent/10" title="Open Signal Flow Mapping">' +
+                            ui.icon('sliders', 'w-3.5 h-3.5') + '<span>Signal Flow</span>' +
+                          '</button>' +
+                          '<button data-sheet-dup="' + sheet.id + '" class="btn btn-ghost !py-1 !px-2 text-xs flex items-center gap-1" title="Duplicate Sheet">' +
+                            ui.icon('plus', 'w-3 h-3') + '<span>Duplicate</span>' +
+                          '</button>' +
+                          '<button data-sheet-edit="' + sheet.id + '" class="btn btn-primary !py-1 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                            ui.icon('pen', 'w-3 h-3') + '<span>Edit Builder</span>' +
+                          '</button>' +
+                          '<button data-sheet-del="' + sheet.id + '" class="btn btn-danger !p-1.5" title="Delete sheet">' +
+                            ui.icon('trash', 'w-3.5 h-3.5') +
+                          '</button>' +
+                        '</div>' +
+                      '</div>' +
+                    '</div>'
+                  );
+                }).join('') +
+              '</div>'
+            )) +
+          '</div>'
+        ) : '') +
+
+        // VIEW 2: PRESETS LIBRARY
+        (activeMainView === 'library' ? (
+          '<div class="grid gap-4">' +
+            '<div class="flex items-center justify-between flex-wrap gap-2">' +
+              '<div class="flex items-center gap-2">' +
+                '<button data-filter-tab="all" class="px-3 py-1.5 rounded-lg text-xs font-semibold border ' + (activeFilterTab === 'all' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel2 border-line text-muted hover:text-ink') + '">' +
+                  'All Presets (' + allPresets.length + ')' +
+                '</button>' +
+                '<button data-filter-tab="input" class="px-3 py-1.5 rounded-lg text-xs font-semibold border ' + (activeFilterTab === 'input' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel2 border-line text-muted hover:text-ink') + '">' +
+                  'Input Patches (' + presetsApi.getInputs().length + ')' +
+                '</button>' +
+                '<button data-filter-tab="output" class="px-3 py-1.5 rounded-lg text-xs font-semibold border ' + (activeFilterTab === 'output' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel2 border-line text-muted hover:text-ink') + '">' +
+                  'Outputs & Monitors (' + presetsApi.getOutputs().length + ')' +
+                '</button>' +
+              '</div>' +
+              '<div class="flex items-center gap-1.5">' +
+                '<button id="btn-new-inp-lib" class="btn btn-primary !py-1.5 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                  ui.icon('plus', 'w-3.5 h-3.5') + '<span>Input Preset</span>' +
+                '</button>' +
+                '<button id="btn-new-out-lib" class="btn btn-primary !py-1.5 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                  ui.icon('plus', 'w-3.5 h-3.5') + '<span>Output Preset</span>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+
+            (!filteredPresets.length ? (
+              '<div class="panel p-12 text-center text-muted flex flex-col items-center justify-center gap-3">' +
+                '<div class="w-12 h-12 rounded-full bg-panel2 flex items-center justify-center text-muted">' + ui.icon('sliders', 'w-6 h-6') + '</div>' +
+                '<p class="text-sm font-bold text-ink">No presets found</p>' +
+                '<p class="text-xs max-w-sm">No patch presets matched your search filter. Create a new preset or reset defaults.</p>' +
+              '</div>'
+            ) : (
+              '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">' +
+                filteredPresets.map((p) => {
+                  const isInput = p.type === 'input';
+                  const chCount = Array.isArray(p.channels) ? p.channels.length : 0;
+                  const chPreview = (p.channels || []).slice(0, 6).map((c) => {
+                    if (isInput) {
+                      return '<span class="px-1.5 py-0.5 rounded bg-panel border border-line text-[10px] font-mono">' +
+                        '#' + (c.channel || '') + ' ' + ui.esc(c.instrument || 'In') + (c.phantom ? ' <b class="text-danger">+48V</b>' : '') +
+                      '</span>';
+                    } else {
+                      return '<span class="px-1.5 py-0.5 rounded bg-panel border border-line text-[10px] font-mono">' +
+                        'Out ' + (c.num || '') + ': ' + ui.esc(c.name || c.dest || 'Mix') +
+                      '</span>';
+                    }
+                  }).join('');
+
+                  return (
+                    '<div class="panel p-5 flex flex-col justify-between gap-4 border border-line hover:border-accent/50 transition-colors shadow-sm relative group">' +
+                      '<div>' +
+                        '<div class="flex items-start justify-between gap-2 mb-2">' +
+                          '<div>' +
+                            '<div class="flex items-center gap-2 mb-1">' +
+                              '<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider font-mono border ' + (isInput ? 'bg-accent/15 border-accent/40 text-accent' : 'bg-info/15 border-info/40 text-info') + '">' +
+                                (isInput ? 'Input Patch' : 'Output Patch') +
+                              '</span>' +
+                              '<span class="px-2 py-0.5 rounded bg-panel2 border border-line text-[10px] text-muted">' + ui.esc(p.category || 'General') + '</span>' +
+                            '</div>' +
+                            '<h3 class="text-base font-bold text-ink">' + ui.esc(p.name) + '</h3>' +
+                          '</div>' +
+                          '<span class="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-panel2 border border-line text-ink shrink-0">' +
+                            chCount + ' ' + (isInput ? 'Ch' : 'Out') +
+                          '</span>' +
+                        '</div>' +
+                        (p.description ? '<p class="text-xs text-muted mb-3 leading-relaxed">' + ui.esc(p.description) + '</p>' : '') +
+                        '<div class="flex flex-wrap gap-1.5 pt-2 border-t border-line/60">' +
+                          chPreview +
+                          (chCount > 6 ? '<span class="text-[10px] text-muted self-center font-mono">+' + (chCount - 6) + ' more\u2026</span>' : '') +
+                        '</div>' +
+                      '</div>' +
+
+                      '<div class="flex items-center justify-between pt-3 border-t border-line/60 gap-2 flex-wrap">' +
+                        '<button data-pre-print="' + p.id + '" class="btn btn-ghost !py-1 !px-2 text-xs flex items-center gap-1 text-muted hover:text-ink" title="Print PDF">' +
+                          ui.icon('print', 'w-3 h-3') + '<span>Print PDF</span>' +
+                        '</button>' +
+                        '<div class="flex items-center gap-1.5">' +
+                          '<button data-pre-dup="' + p.id + '" class="btn btn-ghost !py-1 !px-2 text-xs flex items-center gap-1" title="Duplicate">' +
+                            ui.icon('plus', 'w-3 h-3') + '<span>Duplicate</span>' +
+                          '</button>' +
+                          '<button data-pre-edit="' + p.id + '" class="btn btn-primary !py-1 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                            ui.icon('pen', 'w-3 h-3') + '<span>Edit</span>' +
+                          '</button>' +
+                          '<button data-pre-del="' + p.id + '" class="btn btn-danger !p-1.5" title="Delete preset">' +
+                            ui.icon('trash', 'w-3.5 h-3.5') +
+                          '</button>' +
+                        '</div>' +
+                      '</div>' +
+                    '</div>'
+                  );
+                }).join('') +
+              '</div>'
+            )) +
+          '</div>'
+        ) : '') +
+
+        // VIEW 3: TECH SPEC BUILDER (FULL MULTI-ASPECT BUILDER & PDF PRINTER)
+        (activeMainView === 'builder' ? (
+          '<div class="grid gap-6">' +
+            // Tech Spec Header & Metadata Card
+            '<div class="panel p-5 border border-line bg-panel grid gap-4 shadow-sm">' +
+              '<div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">' +
+                '<div>' +
+                  '<div class="flex items-center gap-2 mb-1">' +
+                    '<span class="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-accent/15 border border-accent/40 text-accent font-mono">Tech Spec Master</span>' +
+                    '<span class="text-xs text-muted">Build, customize, and print technical riders across all 3 aspects</span>' +
+                  '</div>' +
+                  '<h3 class="text-lg font-bold text-ink">Technical Specification & Stage Rider Builder</h3>' +
+                '</div>' +
+                '<div class="flex items-center gap-2 flex-wrap">' +
+                  '<button id="btn-ts-save-sheet" class="btn btn-ghost text-xs font-semibold border border-line flex items-center gap-1.5 hover:border-accent hover:text-accent" title="Convert this Tech Spec into an Event Patch Sheet">' +
+                    ui.icon('box', 'w-3.5 h-3.5') + '<span>Convert to Patch Sheet</span>' +
+                  '</button>' +
+                  '<button id="btn-ts-reset" class="btn btn-ghost text-xs text-muted hover:text-danger flex items-center gap-1" title="Clear all fields">' +
+                    ui.icon('reset', 'w-3 h-3') + '<span>Clear Form</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              // Metadata Form Fields
+              '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">' +
+                '<div class="sm:col-span-2 md:col-span-2">' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">Rider / Tech Spec Title</label>' +
+                  '<input id="ts-meta-title" class="field text-xs w-full font-semibold" value="' + ui.esc(spec.title || '') + '" placeholder="e.g. Meridian Arts Live Production Rider" />' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">Linked Advance Event</label>' +
+                  '<select id="ts-meta-event" class="field text-xs w-full">' +
+                    '<option value="">-- No Linked Event --</option>' +
+                    advanceEvents.map((ev) => '<option value="' + ev.id + '" ' + (ev.id === spec.eventId ? 'selected' : '') + '>' + ui.esc(ev.date ? ui.formatDate(ev.date) : 'TBC') + ' \u2014 ' + ui.esc(ev.name || ev.title) + (ev.space ? ' (' + ui.esc(Array.isArray(ev.space) ? ev.space.join(', ') : ev.space) + ')' : '') + '</option>').join('') +
+                  '</select>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">Artist / Act Name</label>' +
+                  '<input id="ts-meta-artist" class="field text-xs w-full" value="' + ui.esc(spec.artist || '') + '" placeholder="e.g. Main Act / Ensemble" />' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">Performance Date</label>' +
+                  '<input id="ts-meta-date" type="date" class="field text-xs w-full" value="' + ui.esc(spec.date || '') + '" />' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">FOH Sound Engineer</label>' +
+                  '<input id="ts-meta-foh" class="field text-xs w-full" value="' + ui.esc(spec.contactFoh || '') + '" placeholder="FOH Contact / Name" />' +
+                '</div>' +
+                '<div class="sm:col-span-2 md:col-span-3">' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1">Monitor / Stage Tech</label>' +
+                  '<input id="ts-meta-mon" class="field text-xs w-full" value="' + ui.esc(spec.contactMon || '') + '" placeholder="Monitor Contact / Name" />' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+
+            // Aspect 1: Input Channel List & Patch
+            '<div class="panel p-5 border border-line bg-panel grid gap-4 shadow-sm">' +
+              '<div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">' +
+                '<div class="flex items-center gap-2.5 flex-wrap">' +
+                  '<div class="w-7 h-7 rounded bg-accent/15 text-accent flex items-center justify-center font-mono font-bold text-xs">1</div>' +
+                  '<div>' +
+                    '<h4 class="text-base font-bold text-ink flex items-center gap-2">' +
+                      '<span>Aspect 1: Channel Input List & Patch</span>' +
+                      '<span class="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-panel2 border border-line text-ink">' + (spec.inputs ? spec.inputs.length : 0) + ' Channels</span>' +
+                      (phantomCount > 0 ? '<span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-danger/15 text-danger border border-danger/30">' + phantomCount + 'x +48V</span>' : '') +
+                    '</h4>' +
+                    '<p class="text-xs text-muted">Stage instruments, microphone models, stand choices, positions and +48V phantom power</p>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="flex items-center gap-1.5 flex-wrap">' +
+                  '<button id="btn-ts-print-inp" class="btn btn-ghost text-xs font-semibold flex items-center gap-1 border border-line text-ink hover:text-accent">' +
+                    ui.icon('print', 'w-3.5 h-3.5') + '<span>Print Inputs PDF</span>' +
+                  '</button>' +
+                  '<button id="btn-ts-save-inp-preset" class="btn btn-ghost text-xs text-muted hover:text-ink flex items-center gap-1" title="Save these inputs into Preset Library">' +
+                    ui.icon('sliders', 'w-3.5 h-3.5') + '<span>Save Preset</span>' +
+                  '</button>' +
+                  '<select id="sel-ts-load-inp-preset" class="field !py-1 text-xs max-w-[150px]">' +
+                    '<option value="">Load Preset\u2026</option>' +
+                    presetsApi.getInputs().map((p) => '<option value="' + p.id + '">' + ui.esc(p.name) + ' (' + (p.channels ? p.channels.length : 0) + 'ch)</option>').join('') +
+                  '</select>' +
+                  '<button id="btn-ts-add-inp" class="btn btn-primary !py-1 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                    ui.icon('plus', 'w-3.5 h-3.5') + '<span>Add Channel</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              // Aspect 1 Inputs Mobile Cards View
+              '<div class="md:hidden grid gap-2.5">' +
+                (!spec.inputs || !spec.inputs.length ? (
+                  '<div class="p-4 text-center text-muted italic bg-panel2/30 rounded-lg border border-line">No input channels added. Click "Add Channel" or load a preset above.</div>'
+                ) : (
+                  spec.inputs.map((ch, idx) => (
+                    '<div class="p-3 rounded-lg bg-panel border border-line shadow-2xs grid gap-2 text-xs">' +
+                      '<div class="flex items-center justify-between gap-2">' +
+                        '<div class="flex items-center gap-2">' +
+                          '<span class="font-mono font-bold text-xs px-2 py-0.5 rounded bg-accent/15 text-accent border border-accent/30">Ch ' + (ch.channel || (idx + 1)) + '</span>' +
+                          '<label class="inline-flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded ' + (ch.phantom ? 'bg-danger/15 border border-danger/30' : 'bg-panel2 border border-line') + '" title="Toggle +48V Phantom Power">' +
+                            '<input type="checkbox" data-ts-inp-48v="' + idx + '" class="w-3.5 h-3.5 accent-[var(--danger)] cursor-pointer" ' + (ch.phantom ? 'checked' : '') + ' />' +
+                            '<span class="text-[10px] font-bold ' + (ch.phantom ? 'text-danger' : 'text-muted') + '">+48V</span>' +
+                          '</label>' +
+                        '</div>' +
+                        '<div class="flex items-center gap-1">' +
+                          '<button data-ts-inp-up="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3 h-3') + '</button>' +
+                          '<button data-ts-inp-down="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Down" ' + (idx === spec.inputs.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3 h-3') + '</button>' +
+                          '<button data-ts-inp-del="' + idx + '" class="btn btn-danger !p-1 text-danger" title="Delete Channel">' + ui.icon('trash', 'w-3 h-3') + '</button>' +
+                        '</div>' +
+                      '</div>' +
+                      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Instrument / Source</label>' +
+                          '<input data-ts-inp-inst="' + idx + '" class="field !py-1 !px-2 text-xs w-full font-medium" value="' + ui.esc(ch.instrument || '') + '" placeholder="e.g. Kick Drum, Vocal" />' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Mic / DI Model</label>' +
+                          '<input list="inv-mic-suggestions" data-ts-inp-mic="' + idx + '" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(ch.mic || '') + '" placeholder="e.g. Beta 52, SM58, Active DI" />' +
+                        '</div>' +
+                      '</div>' +
+                      '<div class="grid grid-cols-2 gap-2">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Stand Type</label>' +
+                          '<select data-ts-inp-stand="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                            '<option value="">Stand\u2026</option>' +
+                            ['N/A', 'Short Boom', 'Tall Boom', 'Straight Stand', 'Claw / Clip', 'Desk Stand', 'Lectern'].map((s) => '<option ' + (s === ch.stand ? 'selected' : '') + '>' + s + '</option>').join('') +
+                          '</select>' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Stage Position</label>' +
+                          '<select data-ts-inp-pos="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                            '<option value="">Position\u2026</option>' +
+                            ['Downstage Centre', 'Downstage Left', 'Downstage Right', 'Centre Stage', 'Stage Left', 'Stage Right', 'Upstage Centre', 'Upstage Left', 'Upstage Right', 'FOH / Control'].map((p) => '<option ' + (p === ch.pos ? 'selected' : '') + '>' + p + '</option>').join('') +
+                          '</select>' +
+                        '</div>' +
+                      '</div>' +
+                      '<div>' +
+                        '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Notes / Routing</label>' +
+                        '<input data-ts-inp-notes="' + idx + '" class="field !py-1 !px-2 text-xs w-full text-muted" value="' + ui.esc(ch.notes || '') + '" placeholder="Routing or EQ notes" />' +
+                      '</div>' +
+                    '</div>'
+                  )).join('')
+                )) +
+              '</div>' +
+
+              // Inputs Table (Desktop view)
+              '<div class="hidden md:block overflow-x-auto rounded-lg border border-line">' +
+                '<table class="w-full text-xs text-left border-collapse">' +
+                  '<thead>' +
+                    '<tr class="bg-panel2/80 text-muted font-semibold border-b border-line">' +
+                      '<th class="p-2 text-center w-12 font-mono">Ch</th>' +
+                      '<th class="p-2 min-w-[150px]">Instrument / Source</th>' +
+                      '<th class="p-2 min-w-[140px]">Mic / DI Model</th>' +
+                      '<th class="p-2 min-w-[120px]">Stand Type</th>' +
+                      '<th class="p-2 min-w-[130px]">Stage Position</th>' +
+                      '<th class="p-2 text-center w-16">+48V</th>' +
+                      '<th class="p-2 min-w-[140px]">Notes</th>' +
+                      '<th class="p-2 text-center w-20">Actions</th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody>' +
+                    (!spec.inputs || !spec.inputs.length ? (
+                      '<tr><td colspan="8" class="p-4 text-center text-muted italic">No input channels added. Click "Add Channel" or load a preset above.</td></tr>'
+                    ) : (
+                      spec.inputs.map((ch, idx) => (
+                        '<tr class="border-b border-line/60 hover:bg-panel2/30 transition-colors">' +
+                          '<td class="p-2 text-center font-mono font-bold text-accent">' + (ch.channel || (idx + 1)) + '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input data-ts-inp-inst="' + idx + '" class="field !py-1 !px-2 text-xs w-full font-medium" value="' + ui.esc(ch.instrument || '') + '" placeholder="e.g. Kick Drum, Vocal" />' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input list="inv-mic-suggestions" data-ts-inp-mic="' + idx + '" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(ch.mic || '') + '" placeholder="e.g. Beta 52, SM58, Active DI" />' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<select data-ts-inp-stand="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                              '<option value="">Stand\u2026</option>' +
+                              ['N/A', 'Short Boom', 'Tall Boom', 'Straight Stand', 'Claw / Clip', 'Desk Stand', 'Lectern'].map((s) => '<option ' + (s === ch.stand ? 'selected' : '') + '>' + s + '</option>').join('') +
+                            '</select>' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<select data-ts-inp-pos="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                              '<option value="">Position\u2026</option>' +
+                              ['Downstage Centre', 'Downstage Left', 'Downstage Right', 'Centre Stage', 'Stage Left', 'Stage Right', 'Upstage Centre', 'Upstage Left', 'Upstage Right', 'FOH / Control'].map((p) => '<option ' + (p === ch.pos ? 'selected' : '') + '>' + p + '</option>').join('') +
+                            '</select>' +
+                          '</td>' +
+                          '<td class="p-1.5 text-center">' +
+                            '<label class="inline-flex items-center justify-center cursor-pointer p-1 rounded hover:bg-panel2 ' + (ch.phantom ? 'bg-danger/15' : '') + '">' +
+                              '<input type="checkbox" data-ts-inp-48v="' + idx + '" class="w-4 h-4 accent-[var(--danger)] cursor-pointer" ' + (ch.phantom ? 'checked' : '') + ' />' +
+                            '</label>' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input data-ts-inp-notes="' + idx + '" class="field !py-1 !px-2 text-xs w-full text-muted" value="' + ui.esc(ch.notes || '') + '" placeholder="Routing or EQ notes" />' +
+                          '</td>' +
+                          '<td class="p-1.5 text-center">' +
+                            '<div class="flex items-center justify-center gap-1">' +
+                              '<button data-ts-inp-up="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3 h-3') + '</button>' +
+                              '<button data-ts-inp-down="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Down" ' + (idx === spec.inputs.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3 h-3') + '</button>' +
+                              '<button data-ts-inp-del="' + idx + '" class="btn btn-danger !p-1 text-danger" title="Delete Channel">' + ui.icon('trash', 'w-3 h-3') + '</button>' +
+                            '</div>' +
+                          '</td>' +
+                        '</tr>'
+                      )).join('')
+                    )) +
+                  '</tbody>' +
+                '</table>' +
+              '</div>' +
+              '<div class="flex items-center justify-between gap-2 flex-wrap pt-1">' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<button id="btn-ts-quick-4inp" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-ink border border-line">+ Quick 4 Ch</button>' +
+                  '<button id="btn-ts-quick-8inp" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-ink border border-line">+ Quick 8 Ch</button>' +
+                  '<button id="btn-ts-clear-inp" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-danger">Clear All</button>' +
+                '</div>' +
+                '<span class="text-xs text-muted font-mono">' + (spec.inputs ? spec.inputs.length : 0) + ' inputs configured</span>' +
+              '</div>' +
+            '</div>' +
+
+            // Aspect 2: Output & Monitor Patch Matrix
+            '<div class="panel p-5 border border-line bg-panel grid gap-4 shadow-sm">' +
+              '<div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">' +
+                '<div class="flex items-center gap-2.5 flex-wrap">' +
+                  '<div class="w-7 h-7 rounded bg-info/15 text-info flex items-center justify-center font-mono font-bold text-xs">2</div>' +
+                  '<div>' +
+                    '<h4 class="text-base font-bold text-ink flex items-center gap-2">' +
+                      '<span>Aspect 2: Output & Monitor Patch Matrix</span>' +
+                      '<span class="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-panel2 border border-line text-ink">' + (spec.outputs ? spec.outputs.length : 0) + ' Mixes</span>' +
+                      '<span class="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-info/15 text-info border border-info/30">' + wedgeCount + ' Wedges / ' + iemCount + ' IEMs</span>' +
+                    '</h4>' +
+                    '<p class="text-xs text-muted">Stage wedges, stereo IEM wireless feeds, side fills, recording stems and broadcast matrix sends</p>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="flex items-center gap-1.5 flex-wrap">' +
+                  '<button id="btn-ts-print-out" class="btn btn-ghost text-xs font-semibold flex items-center gap-1 border border-line text-ink hover:text-info">' +
+                    ui.icon('print', 'w-3.5 h-3.5') + '<span>Print Outputs PDF</span>' +
+                  '</button>' +
+                  '<button id="btn-ts-save-out-preset" class="btn btn-ghost text-xs text-muted hover:text-ink flex items-center gap-1" title="Save these outputs into Preset Library">' +
+                    ui.icon('sliders', 'w-3.5 h-3.5') + '<span>Save Preset</span>' +
+                  '</button>' +
+                  '<select id="sel-ts-load-out-preset" class="field !py-1 text-xs max-w-[150px]">' +
+                    '<option value="">Load Preset\u2026</option>' +
+                    presetsApi.getOutputs().map((p) => '<option value="' + p.id + '">' + ui.esc(p.name) + ' (' + (p.channels ? p.channels.length : 0) + ' out)</option>').join('') +
+                  '</select>' +
+                  '<button id="btn-ts-add-out" class="btn btn-primary !py-1 !px-2.5 text-xs font-semibold flex items-center gap-1">' +
+                    ui.icon('plus', 'w-3.5 h-3.5') + '<span>Add Output</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              // Aspect 2 Outputs Mobile Cards View
+              '<div class="md:hidden grid gap-2.5">' +
+                (!spec.outputs || !spec.outputs.length ? (
+                  '<div class="p-4 text-center text-muted italic bg-panel2/30 rounded-lg border border-line">No output mixes added. Click "Add Output" or load a preset above.</div>'
+                ) : (
+                  spec.outputs.map((out, idx) => (
+                    '<div class="p-3 rounded-lg bg-panel border border-line shadow-2xs grid gap-2 text-xs">' +
+                      '<div class="flex items-center justify-between gap-2">' +
+                        '<div class="flex items-center gap-2">' +
+                          '<span class="font-mono font-bold text-xs px-2 py-0.5 rounded bg-info/15 text-info border border-info/30">Out ' + (out.num || (idx + 1)) + '</span>' +
+                          '<label class="inline-flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded ' + (out.stereo ? 'bg-accent/15 border border-accent/30 text-accent font-bold' : 'bg-panel2 border border-line text-muted') + '">' +
+                            '<input type="checkbox" data-ts-out-stereo="' + idx + '" class="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer" ' + (out.stereo ? 'checked' : '') + ' />' +
+                            '<span>' + (out.stereo ? 'Stereo' : 'Mono') + '</span>' +
+                          '</label>' +
+                        '</div>' +
+                        '<div class="flex items-center gap-1">' +
+                          '<button data-ts-out-up="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3 h-3') + '</button>' +
+                          '<button data-ts-out-down="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Down" ' + (idx === spec.outputs.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3 h-3') + '</button>' +
+                          '<button data-ts-out-del="' + idx + '" class="btn btn-danger !p-1 text-danger" title="Delete Output">' + ui.icon('trash', 'w-3 h-3') + '</button>' +
+                        '</div>' +
+                      '</div>' +
+                      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Mix Name / Musician</label>' +
+                          '<input data-ts-out-name="' + idx + '" class="field !py-1 !px-2 text-xs w-full font-medium" value="' + ui.esc(out.name || '') + '" placeholder="e.g. Lead Vocal Wedge, Drummer IEM" />' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Mix Type</label>' +
+                          '<select data-ts-out-type="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                            ['Wedge', 'IEM', 'Fill', 'Line Out', 'Feed', 'Matrix', 'Stream'].map((t) => '<option ' + (t === out.type ? 'selected' : '') + '>' + t + '</option>').join('') +
+                          '</select>' +
+                        '</div>' +
+                      '</div>' +
+                      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Stage Destination / TX</label>' +
+                          '<input data-ts-out-dest="' + idx + '" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(out.dest || '') + '" placeholder="e.g. Downstage Centre, IEM Rack Ch 1-2" />' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-[10px] uppercase font-bold text-muted mb-0.5">Notes / Limiters</label>' +
+                          '<input data-ts-out-notes="' + idx + '" class="field !py-1 !px-2 text-xs w-full text-muted" value="' + ui.esc(out.notes || '') + '" placeholder="Limiter / Level notes" />' +
+                        '</div>' +
+                      '</div>' +
+                    '</div>'
+                  )).join('')
+                )) +
+              '</div>' +
+
+              // Outputs Table (Desktop view)
+              '<div class="hidden md:block overflow-x-auto rounded-lg border border-line">' +
+                '<table class="w-full text-xs text-left border-collapse">' +
+                  '<thead>' +
+                    '<tr class="bg-panel2/80 text-muted font-semibold border-b border-line">' +
+                      '<th class="p-2 text-center w-12 font-mono">Out</th>' +
+                      '<th class="p-2 min-w-[150px]">Mix Name / Musician</th>' +
+                      '<th class="p-2 min-w-[120px]">Mix Type</th>' +
+                      '<th class="p-2 min-w-[140px]">Stage Destination / TX</th>' +
+                      '<th class="p-2 text-center w-20">Format</th>' +
+                      '<th class="p-2 min-w-[140px]">Notes</th>' +
+                      '<th class="p-2 text-center w-20">Actions</th>' +
+                    '</tr>' +
+                  '</thead>' +
+                  '<tbody>' +
+                    (!spec.outputs || !spec.outputs.length ? (
+                      '<tr><td colspan="7" class="p-4 text-center text-muted italic">No output mixes added. Click "Add Output" or load a preset above.</td></tr>'
+                    ) : (
+                      spec.outputs.map((out, idx) => (
+                        '<tr class="border-b border-line/60 hover:bg-panel2/30 transition-colors">' +
+                          '<td class="p-2 text-center font-mono font-bold text-info">' + (out.num || (idx + 1)) + '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input data-ts-out-name="' + idx + '" class="field !py-1 !px-2 text-xs w-full font-medium" value="' + ui.esc(out.name || '') + '" placeholder="e.g. Lead Vocal Wedge, Drummer IEM" />' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<select data-ts-out-type="' + idx + '" class="field !py-1 !px-1.5 text-xs w-full">' +
+                              ['Wedge', 'IEM', 'Fill', 'Line Out', 'Feed', 'Matrix', 'Stream'].map((t) => '<option ' + (t === out.type ? 'selected' : '') + '>' + t + '</option>').join('') +
+                            '</select>' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input data-ts-out-dest="' + idx + '" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(out.dest || '') + '" placeholder="e.g. Downstage Centre, IEM Rack Ch 1-2" />' +
+                          '</td>' +
+                          '<td class="p-1.5 text-center">' +
+                            '<label class="inline-flex items-center gap-1 cursor-pointer text-[11px] font-mono">' +
+                              '<input type="checkbox" data-ts-out-stereo="' + idx + '" class="w-3.5 h-3.5 accent-[var(--accent)]" ' + (out.stereo ? 'checked' : '') + ' />' +
+                              '<span class="' + (out.stereo ? 'text-accent font-bold' : 'text-muted') + '">' + (out.stereo ? 'Stereo' : 'Mono') + '</span>' +
+                            '</label>' +
+                          '</td>' +
+                          '<td class="p-1.5">' +
+                            '<input data-ts-out-notes="' + idx + '" class="field !py-1 !px-2 text-xs w-full text-muted" value="' + ui.esc(out.notes || '') + '" placeholder="Limiter / Level notes" />' +
+                          '</td>' +
+                          '<td class="p-1.5 text-center">' +
+                            '<div class="flex items-center justify-center gap-1">' +
+                              '<button data-ts-out-up="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3 h-3') + '</button>' +
+                              '<button data-ts-out-down="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Down" ' + (idx === spec.outputs.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3 h-3') + '</button>' +
+                              '<button data-ts-out-del="' + idx + '" class="btn btn-danger !p-1 text-danger" title="Delete Output">' + ui.icon('trash', 'w-3 h-3') + '</button>' +
+                            '</div>' +
+                          '</td>' +
+                        '</tr>'
+                      )).join('')
+                    )) +
+                  '</tbody>' +
+                '</table>' +
+              '</div>' +
+              '<div class="flex items-center justify-between gap-2 flex-wrap pt-1">' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<button id="btn-ts-quick-4wedges" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-ink border border-line">+ Quick 4 Wedges</button>' +
+                  '<button id="btn-ts-quick-2iems" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-ink border border-line">+ Quick 2 Stereo IEMs</button>' +
+                  '<button id="btn-ts-clear-out" class="btn btn-ghost !py-1 !px-2 text-xs text-muted hover:text-danger">Clear All</button>' +
+                '</div>' +
+                '<span class="text-xs text-muted font-mono">' + (spec.outputs ? spec.outputs.length : 0) + ' outputs configured</span>' +
+              '</div>' +
+            '</div>' +
+
+            // Aspect 3: Technical & Stage Specifications
+            '<div class="panel p-5 border border-line bg-panel grid gap-4 shadow-sm">' +
+              '<div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">' +
+                '<div class="flex items-center gap-2.5 flex-wrap">' +
+                  '<div class="w-7 h-7 rounded bg-warning/15 text-warning flex items-center justify-center font-mono font-bold text-xs">3</div>' +
+                  '<div>' +
+                    '<h4 class="text-base font-bold text-ink flex items-center gap-2">' +
+                      '<span>Aspect 3: Technical & Stage Specifications</span>' +
+                    '</h4>' +
+                    '<p class="text-xs text-muted">AC power distribution, console architectures, stage dimensions, risers, lighting & hazer requirements</p>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="flex items-center gap-1.5 flex-wrap">' +
+                  '<button id="btn-ts-print-specs" class="btn btn-ghost text-xs font-semibold flex items-center gap-1 border border-line text-ink hover:text-warning">' +
+                    ui.icon('print', 'w-3.5 h-3.5') + '<span>Print Specs PDF</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>⚡ AC Power & Stage Drops</span></label>' +
+                  '<textarea id="ts-spec-power" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. 32A 3-Phase CEEform Upstage Left + 13A Twin sockets on all backline risers & downstage edges">' + ui.esc(spec.specs ? spec.specs.power || '' : '') + '</textarea>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>🎛️ FOH & Mon Consoles</span></label>' +
+                  '<textarea id="ts-spec-fohDesk" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. dLive / Avantis / Digico Digital Console (AES50 / Dante network split to Monitors)">' + ui.esc(spec.specs ? spec.specs.fohDesk || '' : '') + '</textarea>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>📐 Stage Risers & Layout</span></label>' +
+                  '<textarea id="ts-spec-stageRisers" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. Drum Riser 8ft x 8ft x 1ft (USC), Keyboard Riser 8ft x 6ft (USL)">' + ui.esc(spec.specs ? spec.specs.stageRisers || '' : '') + '</textarea>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>💡 Lighting & Hazer / FX</span></label>' +
+                  '<textarea id="ts-spec-lightingHazer" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. Water-based hazer authorized. Front warm wash + moving profile specials">' + ui.esc(spec.specs ? spec.specs.lightingHazer || '' : '') + '</textarea>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>🎤 Backline & Rigging Packages</span></label>' +
+                  '<textarea id="ts-spec-backline" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. House mic stand package, 8x passive DIs, 4x active DIs, 12-way stage sub-snakes">' + ui.esc(spec.specs ? spec.specs.backline || '' : '') + '</textarea>' +
+                '</div>' +
+                '<div>' +
+                  '<label class="block text-[11px] font-semibold text-muted mb-1 flex items-center gap-1"><span>📋 Changeover Protocols & Notes</span></label>' +
+                  '<textarea id="ts-spec-additionalNotes" class="field text-xs w-full h-24 resize-none leading-relaxed" placeholder="e.g. Standard 45-minute soundcheck. Quick changeover repatch protocol in effect">' + ui.esc(spec.specs ? spec.specs.additionalNotes || '' : '') + '</textarea>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+
+            // Bottom Action Bar
+            '<div class="panel p-4 border border-line bg-panel2/60 flex flex-wrap items-center justify-between gap-3">' +
+              '<div class="text-xs text-muted">' +
+                'Generate printable rider PDFs for <b>Aspect 1 (Inputs)</b>, <b>Aspect 2 (Outputs)</b>, <b>Aspect 3 (Specs)</b>, or the <b>Complete Tech Spec</b>.' +
+              '</div>' +
+              '<div class="flex items-center gap-2 flex-wrap">' +
+                '<button id="btn-bottom-print-inp" class="btn btn-ghost text-xs font-semibold border border-line text-ink">' + ui.icon('print', 'w-3.5 h-3.5') + ' 1. Inputs PDF</button>' +
+                '<button id="btn-bottom-print-out" class="btn btn-ghost text-xs font-semibold border border-line text-ink">' + ui.icon('print', 'w-3.5 h-3.5') + ' 2. Outputs PDF</button>' +
+                '<button id="btn-bottom-print-spec" class="btn btn-ghost text-xs font-semibold border border-line text-ink">' + ui.icon('print', 'w-3.5 h-3.5') + ' 3. Specs PDF</button>' +
+                '<button id="btn-bottom-print-full" class="btn btn-primary text-xs font-bold flex items-center gap-1.5 shadow-sm">' +
+                  ui.icon('print', 'w-4 h-4') + '<span>Print Complete Master Tech Spec (All 3)</span>' +
+                '</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        ) : '') +
+
+        // VIEW 4: DMX LIGHTING PATCH SHEET & RIG MANAGER
+        (activeMainView === 'dmx' ? (() => {
+          const val = RMTP.dmx ? RMTP.dmx.validatePatch(dmxFixtures) : { hasErrors: false, conflictMap: {}, universeSummaries: {}, overlaps: [], outOfBounds: [] };
+          const univSummaries = val.universeSummaries || {};
+          const univKeys = Object.keys(univSummaries).sort((a, b) => +a - +b);
+          const personalities = RMTP.dmx ? RMTP.dmx.getAllPersonalities() : [];
+
+          const groupedPersonalities = {};
+          personalities.forEach((p) => {
+            const mfg = p.manufacturer || 'Other';
+            if (!groupedPersonalities[mfg]) groupedPersonalities[mfg] = [];
+            groupedPersonalities[mfg].push(p);
+          });
+
+          const filteredFixtures = dmxFixtures.filter((f) => {
+            if (activeDmxUniverse !== 'all' && String(f.universe || 1) !== String(activeDmxUniverse)) return false;
+            return true;
+          });
+
+          const savedPatches = (RMTP.dmx && typeof RMTP.dmx.getAllPatches === 'function') ? RMTP.dmx.getAllPatches() : [];
+          const advancingEvents = (RMTP.getUpcomingActiveEvents ? RMTP.getUpcomingActiveEvents(dmxPatch.eventId) : []);
+
+          return (
+            '<div class="grid gap-5">' +
+              // Rig Metadata & Templates Bar
+              '<div class="panel p-4 border border-line bg-panel2/40 flex flex-wrap items-center justify-between gap-3 shadow-2xs">' +
+                '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 flex-1 min-w-[300px]">' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Patch Title / Rig Name</label>' +
+                    '<input id="dmx-meta-title" class="field text-xs w-full bg-panel" value="' + ui.esc(dmxPatch.title || '') + '" placeholder="e.g. Main Stage Lighting Rig" />' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Venue / Space</label>' +
+                    '<select id="dmx-meta-space" class="field text-xs w-full bg-panel">' +
+                      '<option value="Main Hall" ' + (dmxPatch.space === 'Main Hall' ? 'selected' : '') + '>Main Hall</option>' +
+                      '<option value="Studio Theatre" ' + (dmxPatch.space === 'Studio Theatre' ? 'selected' : '') + '>Studio Theatre</option>' +
+                      '<option value="Mezzanine" ' + (dmxPatch.space === 'Mezzanine' ? 'selected' : '') + '>Mezzanine</option>' +
+                      '<option value="Outdoor / Other" ' + (dmxPatch.space === 'Outdoor / Other' ? 'selected' : '') + '>Outdoor / Other</option>' +
+                    '</select>' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Associate Event</label>' +
+                    '<select id="dmx-meta-event" class="field text-xs w-full bg-panel">' +
+                      '<option value="">(None / General Rig)</option>' +
+                      advancingEvents.map((ev) => '<option value="' + ev.id + '" ' + (dmxPatch.eventId === ev.id ? 'selected' : '') + '>' + ui.esc(ev.date ? ui.formatDate(ev.date) : 'TBC') + ' \u2014 ' + ui.esc(ev.name || 'Untitled') + (ev.space ? ' (' + ui.esc(Array.isArray(ev.space) ? ev.space.join(', ') : ev.space) + ')' : '') + '</option>').join('') +
+                    '</select>' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Date</label>' +
+                    '<input id="dmx-meta-date" type="date" class="field text-xs w-full bg-panel" value="' + ui.esc(dmxPatch.date || '') + '" />' +
+                  '</div>' +
+                  '<div>' +
+                    '<label class="block text-[11px] font-semibold text-muted mb-1">Load Rig Preset / DB</label>' +
+                    '<select id="sel-dmx-load-template" class="field text-xs w-full bg-panel font-semibold text-accent">' +
+                      '<option value="">Select Rig Preset\u2026</option>' +
+                      (savedPatches.length ? (
+                        '<optgroup label="Saved Cloud / DB Patches">' +
+                          savedPatches.map((p) => '<option value="db:' + p.id + '">' + ui.esc(p.title || p.name || 'DMX Patch') + ' (' + (p.fixtures ? p.fixtures.length : 0) + ' fixtures)</option>').join('') +
+                        '</optgroup>'
+                      ) : '') +
+                      '<optgroup label="Built-in Venue House Rigs">' +
+                        BUILTIN_DMX_TEMPLATES.map((t) => '<option value="tmpl:' + t.id + '">' + ui.esc(t.name) + '</option>').join('') +
+                      '</optgroup>' +
+                    '</select>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="flex items-center gap-2 flex-wrap">' +
+                  '<button type="button" id="btn-dmx-save-db" class="btn btn-primary text-xs flex items-center gap-1 font-semibold shadow-xs" title="Save this DMX rig to the database / event">' +
+                    ui.icon('save', 'w-3.5 h-3.5') + '<span>Save Patch to DB</span>' +
+                  '</button>' +
+                  '<button type="button" id="btn-dmx-manage-lib" class="btn btn-ghost text-xs flex items-center gap-1 border border-line text-ink hover:text-accent font-semibold" title="Personalities Library">' +
+                    ui.icon('sliders', 'w-3.5 h-3.5') + '<span>Personalities</span>' +
+                  '</button>' +
+                  '<button type="button" id="btn-dmx-clear-rig" class="btn btn-ghost text-xs text-muted hover:text-danger flex items-center gap-1" title="Clear rig">' +
+                    ui.icon('trash', 'w-3.5 h-3.5') + '<span>Clear</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              // Universe Metric Cards & Filter Bar
+              '<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">' +
+                '<div class="panel p-3.5 bg-panel border border-line flex items-center justify-between shadow-2xs">' +
+                  '<div>' +
+                    '<div class="text-[11px] text-muted uppercase font-bold tracking-wider">Total Patched</div>' +
+                    '<div class="text-xl font-bold font-mono text-ink mt-0.5">' + dmxFixtures.length + ' <span class="text-xs font-normal text-muted">Fixtures</span></div>' +
+                  '</div>' +
+                  '<div class="w-10 h-10 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center">' +
+                    ui.icon('bulb', 'w-5 h-5') +
+                  '</div>' +
+                '</div>' +
+
+                '<div class="panel p-3.5 bg-panel border border-line flex items-center justify-between shadow-2xs">' +
+                  '<div>' +
+                    '<div class="text-[11px] text-muted uppercase font-bold tracking-wider">Active Universes</div>' +
+                    '<div class="text-xl font-bold font-mono text-ink mt-0.5">' + (univKeys.length || 1) + ' <span class="text-xs font-normal text-muted">Universes</span></div>' +
+                  '</div>' +
+                  '<div class="w-10 h-10 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold font-mono text-sm">' +
+                    '512' +
+                  '</div>' +
+                '</div>' +
+
+                '<div class="panel p-3.5 bg-panel border border-line flex items-center justify-between shadow-2xs">' +
+                  '<div>' +
+                    '<div class="text-[11px] text-muted uppercase font-bold tracking-wider">Address Conflicts</div>' +
+                    '<div class="text-xl font-bold font-mono ' + (val.hasErrors ? 'text-rose-400' : 'text-emerald-400') + ' mt-0.5">' +
+                      (val.hasErrors ? (val.overlaps.length + val.outOfBounds.length) + ' Conflicts' : '0 Clean') +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="w-10 h-10 rounded-lg ' + (val.hasErrors ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30') + ' flex items-center justify-center">' +
+                    ui.icon(val.hasErrors ? 'warning' : 'check', 'w-5 h-5') +
+                  '</div>' +
+                '</div>' +
+
+                '<div class="panel p-3.5 bg-panel border border-line flex items-center justify-between shadow-2xs">' +
+                  '<div>' +
+                    '<div class="text-[11px] text-muted uppercase font-bold tracking-wider">Auto-Addressing</div>' +
+                    '<div class="text-xs text-muted mt-1">Recalculate gapless addresses</div>' +
+                  '</div>' +
+                  '<button type="button" id="btn-dmx-auto-addr-top" class="btn btn-ghost !py-1.5 !px-2.5 text-xs text-accent font-semibold border border-accent/40 hover:bg-accent/10 flex items-center gap-1 shadow-2xs">' +
+                    ui.icon('zap', 'w-3.5 h-3.5 text-warning') + '<span>Auto-Address</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+
+              // Conflict Diagnostics Banner (if errors exist)
+              (val.hasErrors ? (
+                '<div class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/40 text-xs text-rose-300 grid gap-2 shadow-2xs">' +
+                  '<div class="flex items-center gap-2 font-bold text-rose-400">' +
+                    ui.icon('warning', 'w-4 h-4 shrink-0') +
+                    '<span>DMX Address Conflicts & Overlaps Detected (' + (val.overlaps.length + val.outOfBounds.length) + ' issues)</span>' +
+                  '</div>' +
+                  '<ul class="list-disc list-inside space-y-1 text-[11px] text-rose-200/90 pl-1">' +
+                    val.overlaps.map((o) => '<li><strong>Universe ' + o.universe + ':</strong> Unit #' + o.fix1.unit + ' (' + ui.esc(o.fix1.name || o.fix1.model) + ' \u00b7 ch ' + o.fix1.start + '\u2013' + o.fix1.end + ') overlaps with Unit #' + o.fix2.unit + ' (' + ui.esc(o.fix2.name || o.fix2.model) + ' \u00b7 ch ' + o.fix2.start + '\u2013' + o.fix2.end + ') on ch ' + o.overlapStart + '\u2013' + o.overlapEnd + '</li>').join('') +
+                    val.outOfBounds.map((b) => '<li><strong>Universe ' + b.universe + ':</strong> Unit #' + b.unit + ' (' + ui.esc(b.name || b.model) + ') end address ' + b.end + ' exceeds maximum universe limit 512</li>').join('') +
+                  '</ul>' +
+                '</div>'
+              ) : '') +
+
+              // Main Fixtures Table Panel
+              '<div class="panel p-5 border border-line bg-panel grid gap-4 shadow-sm">' +
+                '<div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line">' +
+                  '<div class="flex items-center gap-2 flex-wrap">' +
+                    '<span class="text-xs font-bold text-ink uppercase tracking-wider">Universe Filter:</span>' +
+                    '<button data-dmx-univ-filter="all" class="px-2.5 py-1 rounded text-xs font-mono font-bold border transition-colors ' + (activeDmxUniverse === 'all' ? 'bg-accent text-accent-ink border-accent' : 'bg-panel2 text-muted border-line hover:text-ink') + '">All Universes (' + dmxFixtures.length + ')</button>' +
+                    univKeys.map((u) => {
+                      const s = univSummaries[u];
+                      const isSel = String(activeDmxUniverse) === String(u);
+                      return '<button data-dmx-univ-filter="' + u + '" class="px-2.5 py-1 rounded text-xs font-mono font-bold border transition-colors ' + (isSel ? 'bg-accent text-accent-ink border-accent' : 'bg-panel2 text-muted border-line hover:text-ink') + '">Univ ' + u + ' (' + s.totalChannelsUsed + '/512 ch)</button>';
+                    }).join('') +
+                  '</div>' +
+                  '<div class="flex items-center gap-2 flex-wrap">' +
+                    '<button type="button" id="btn-add-fixture-main" class="btn btn-primary !py-1.5 !px-3 text-xs font-semibold flex items-center gap-1.5 shadow-sm">' +
+                      ui.icon('plus', 'w-4 h-4') + '<span>Add Lighting Fixture</span>' +
+                    '</button>' +
+                  '</div>' +
+                '</div>' +
+
+                (!filteredFixtures.length ? (
+                  '<div class="p-10 rounded-xl bg-panel2/40 border border-dashed border-line text-center grid gap-3">' +
+                    '<div class="w-12 h-12 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center justify-center mx-auto">' +
+                      ui.icon('bulb', 'w-6 h-6') +
+                    '</div>' +
+                    '<div>' +
+                      '<div class="text-sm font-bold text-ink">No DMX Lighting Fixtures Patched</div>' +
+                      '<div class="text-xs text-muted max-w-sm mx-auto mt-1">Add fixtures manually or load a pre-configured house rig preset above.</div>' +
+                    '</div>' +
+                    '<div class="flex items-center justify-center gap-2">' +
+                      '<button type="button" id="btn-add-fixture-empty" class="btn btn-primary text-xs font-semibold flex items-center gap-1.5">' +
+                        ui.icon('plus', 'w-3.5 h-3.5') + '<span>Add First Fixture</span>' +
+                      '</button>' +
+                    '</div>' +
+                  '</div>'
+                ) : (
+                  '<datalist id="dmx-loc-presets">' +
+                    (RMTP.dmx ? RMTP.dmx.STANDARD_LOCATIONS : ['LX1', 'LX2', 'LX3', 'FOH Truss', 'Floor SL', 'Floor SR', 'Balcony']).map((l) => '<option value="' + ui.esc(l) + '"></option>').join('') +
+                  '</datalist>' +
+                  '<div class="overflow-x-auto rounded-xl border border-line bg-panel">' +
+                    '<table class="w-full text-left text-xs border-collapse min-w-[760px]">' +
+                      '<thead>' +
+                        '<tr class="border-b border-line bg-panel2/80 text-[11px] font-bold text-muted uppercase tracking-wider">' +
+                          '<th class="p-2.5 w-16 text-center">Unit #</th>' +
+                          '<th class="p-2.5 w-60">Personality / Model Profile</th>' +
+                          '<th class="p-2.5">Custom Name / Purpose</th>' +
+                          '<th class="p-2.5 w-40">Hanging Location</th>' +
+                          '<th class="p-2.5 w-20 text-center">Univ</th>' +
+                          '<th class="p-2.5 w-20 text-center">Start Addr</th>' +
+                          '<th class="p-2.5 w-24 text-center">End / Footprint</th>' +
+                          '<th class="p-2.5 w-28 text-right">Actions</th>' +
+                        '</tr>' +
+                      '</thead>' +
+                      '<tbody class="divide-y divide-line/60 font-medium">' +
+                        filteredFixtures.map((fix) => {
+                          const idx = dmxFixtures.indexOf(fix);
+                          const fixId = fix.id || 'fix-' + idx;
+                          const univ = parseInt(fix.universe, 10) || 1;
+                          const addr = parseInt(fix.address, 10) || 1;
+                          const ch = Math.max(1, parseInt(fix.channels, 10) || 1);
+                          const end = addr + ch - 1;
+                          const isConflict = val.conflictMap && val.conflictMap[fixId];
+
+                          return (
+                            '<tr class="hover:bg-panel2/40 transition-colors ' + (isConflict ? 'bg-rose-500/10' : '') + '">' +
+                              // Unit Number
+                              '<td class="p-2 text-center">' +
+                                '<input type="text" data-dmx-idx="' + idx + '" data-dmx-fld="unit" class="field !py-1 !px-1 text-center font-mono font-bold text-xs" value="' + ui.esc(fix.unit !== undefined ? fix.unit : (idx + 1)) + '" placeholder="#" />' +
+                              '</td>' +
+                              // Personality Select
+                              '<td class="p-2">' +
+                                '<select data-dmx-idx="' + idx + '" data-dmx-fld="personalityId" class="field !py-1 !px-2 text-xs text-ink font-semibold w-full">' +
+                                  '<option value="">Select Fixture Personality\u2026</option>' +
+                                  Object.keys(groupedPersonalities).sort().map((mfg) => (
+                                    '<optgroup label="' + ui.esc(mfg) + '">' +
+                                      groupedPersonalities[mfg].map((p) => {
+                                        const isSel = (p.id && p.id === fix.personalityId) || (p.model === fix.model && p.channels === fix.channels);
+                                        return '<option value="' + p.id + '" ' + (isSel ? 'selected' : '') + '>' + ui.esc(p.model + ' (' + (p.mode || 'Standard') + ' \u00b7 ' + p.channels + 'ch)') + '</option>';
+                                      }).join('') +
+                                    '</optgroup>'
+                                  )).join('') +
+                                  '<option value="__new__">+ Create New Personality\u2026</option>' +
+                                '</select>' +
+                                (fix.mode ? '<div class="text-[10px] text-muted mt-0.5 font-mono truncate">' + ui.esc((fix.manufacturer ? fix.manufacturer + ' ' : '') + (fix.mode ? '\u00b7 ' + fix.mode : '')) + '</div>' : '') +
+                              '</td>' +
+                              // Custom Name / Purpose
+                              '<td class="p-2">' +
+                                '<input type="text" data-dmx-idx="' + idx + '" data-dmx-fld="name" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(fix.name || '') + '" placeholder="e.g. Back Wash SL" />' +
+                              '</td>' +
+                              // Location
+                              '<td class="p-2">' +
+                                '<input type="text" list="dmx-loc-presets" data-dmx-idx="' + idx + '" data-dmx-fld="location" class="field !py-1 !px-2 text-xs w-full" value="' + ui.esc(fix.location || '') + '" placeholder="LX1 / FOH / Floor" />' +
+                              '</td>' +
+                              // Universe
+                              '<td class="p-2 text-center">' +
+                                '<input type="number" min="1" max="16" data-dmx-idx="' + idx + '" data-dmx-fld="universe" class="field !py-1 !px-1 text-center font-mono text-xs w-16 mx-auto" value="' + univ + '" />' +
+                              '</td>' +
+                              // Start Address
+                              '<td class="p-2 text-center">' +
+                                '<input type="number" min="1" max="512" data-dmx-idx="' + idx + '" data-dmx-fld="address" class="field !py-1 !px-1 text-center font-mono font-bold text-xs w-16 mx-auto ' + (isConflict ? '!border-rose-500 !text-rose-400' : '') + '" value="' + addr + '" />' +
+                              '</td>' +
+                              // End Address & Footprint
+                              '<td class="p-2 text-center font-mono text-[11px]">' +
+                                '<div class="font-bold ' + (end > 512 ? 'text-rose-400' : 'text-cyan-400') + '">' + end + '</div>' +
+                                '<div class="text-[10px] text-muted">' + ch + 'ch</div>' +
+                              '</td>' +
+                              // Actions
+                              '<td class="p-2 text-right">' +
+                                '<div class="flex items-center justify-end gap-1">' +
+                                  '<button type="button" data-dmx-dup="' + idx + '" class="btn btn-ghost !p-1 text-ink hover:text-accent" title="Duplicate Fixture (+1 Address)">' + ui.icon('plus', 'w-3 h-3') + '</button>' +
+                                  '<button type="button" data-dmx-up="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Up" ' + (idx === 0 ? 'disabled' : '') + '>' + ui.icon('arrowU', 'w-3 h-3') + '</button>' +
+                                  '<button type="button" data-dmx-down="' + idx + '" class="btn btn-ghost !p-1 text-muted hover:text-ink" title="Move Down" ' + (idx === dmxFixtures.length - 1 ? 'disabled' : '') + '>' + ui.icon('arrowD', 'w-3 h-3') + '</button>' +
+                                  '<button type="button" data-dmx-del="' + idx + '" class="btn btn-danger !p-1 text-danger" title="Remove Fixture">' + ui.icon('trash', 'w-3 h-3') + '</button>' +
+                                '</div>' +
+                              '</td>' +
+                            '</tr>'
+                          );
+                        }).join('') +
+                      '</tbody>' +
+                    '</table>' +
+                  '</div>'
+                )) +
+              '</div>' +
+
+              // Bottom DMX Action Bar
+              '<div class="panel p-4 border border-line bg-panel2/60 flex flex-wrap items-center justify-between gap-3">' +
+                '<div class="text-xs text-muted">' +
+                  'Generate printable DMX Lighting Patch PDFs or export tabular CSV schedules for grandMA, ChamSys, Avolites & ETC EOS consoles.' +
+                '</div>' +
+                '<div class="flex items-center gap-2 flex-wrap">' +
+                  '<button type="button" id="btn-bottom-dmx-auto-addr" class="btn btn-ghost text-xs font-semibold border border-line text-ink hover:text-accent flex items-center gap-1">' +
+                    ui.icon('zap', 'w-3.5 h-3.5 text-warning') + '<span>Auto-Address Sequential</span>' +
+                  '</button>' +
+                  '<button type="button" id="btn-bottom-dmx-export-csv" class="btn btn-ghost text-xs font-semibold border border-line text-ink hover:text-accent flex items-center gap-1">' +
+                    ui.icon('download', 'w-3.5 h-3.5') + '<span>Export CSV</span>' +
+                  '</button>' +
+                  '<button type="button" id="btn-bottom-dmx-print" class="btn btn-primary text-xs font-bold flex items-center gap-1.5 shadow-sm">' +
+                    ui.icon('print', 'w-4 h-4') + '<span>Print DMX Patch PDF</span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>'
+          );
+        })() : '') +
+      '</div>';
+
+    // Navigation and Tab Event Listeners
+    contentEl.querySelectorAll('[data-main-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeMainView = btn.getAttribute('data-main-view');
+        render();
+      });
+    });
+
+    contentEl.querySelectorAll('[data-filter-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeFilterTab = btn.getAttribute('data-filter-tab');
+        render();
+      });
+    });
+
+    const searchInp = contentEl.querySelector('#presets-search-inp');
+    if (searchInp) {
+      searchInp.addEventListener('input', () => {
+        searchQuery = searchInp.value.trim();
+        render();
+      });
+    }
+
+    // Sheet Builder Actions
+    const createSheetTopBtn = contentEl.querySelector('#btn-create-sheet-top');
+    if (createSheetTopBtn) createSheetTopBtn.addEventListener('click', () => presetsApi.openPatchSheetModal(null, () => render()));
+
+    const newPatchSheetBtn = contentEl.querySelector('#btn-new-patch-sheet');
+    if (newPatchSheetBtn) newPatchSheetBtn.addEventListener('click', () => presetsApi.openPatchSheetModal(null, () => render()));
+
+    const emptyCreateSheetBtn = contentEl.querySelector('#btn-empty-create-sheet');
+    if (emptyCreateSheetBtn) emptyCreateSheetBtn.addEventListener('click', () => presetsApi.openPatchSheetModal(null, () => render()));
+
+    contentEl.querySelectorAll('[data-sheet-edit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sheet-edit');
+        const s = presetsApi.getPatchSheet(id);
+        if (s) presetsApi.openPatchSheetModal(s, () => render(), 1);
+      });
+    });
+
+    contentEl.querySelectorAll('[data-sheet-flow]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sheet-flow');
+        const s = presetsApi.getPatchSheet(id);
+        if (s) presetsApi.openPatchSheetModal(s, () => render(), 3);
+      });
+    });
+
+    contentEl.querySelectorAll('[data-sheet-print]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sheet-print');
+        const s = presetsApi.getPatchSheet(id);
+        if (s) presetsApi.printPatchSheet(s);
+      });
+    });
+
+    contentEl.querySelectorAll('[data-sheet-dup]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sheet-dup');
+        const s = presetsApi.getPatchSheet(id);
+        if (s) {
+          const dup = JSON.parse(JSON.stringify(s));
+          dup.id = null;
+          dup.name = s.name + ' (Copy)';
+          presetsApi.openPatchSheetModal(dup, () => render());
+        }
+      });
+    });
+
+    contentEl.querySelectorAll('[data-sheet-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-sheet-del');
+        const s = presetsApi.getPatchSheet(id);
+        if (s && confirm('Delete patch sheet "' + s.name + '"?')) {
+          presetsApi.removePatchSheet(id);
+          ui.toast('Deleted patch sheet', 'ok');
+          render();
+        }
+      });
+    });
+
+    // Preset Library Actions
+    const newInpLibBtn = contentEl.querySelector('#btn-new-inp-lib');
+    if (newInpLibBtn) newInpLibBtn.addEventListener('click', () => presetsApi.openEditorModal(null, 'input', () => render()));
+
+    const newOutLibBtn = contentEl.querySelector('#btn-new-out-lib');
+    if (newOutLibBtn) newOutLibBtn.addEventListener('click', () => presetsApi.openEditorModal(null, 'output', () => render()));
+
+    contentEl.querySelectorAll('[data-pre-print]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-pre-print');
+        const p = presetsApi.getPreset(id);
+        if (p) presetsApi.printPreset(p);
+      });
+    });
+
+    contentEl.querySelectorAll('[data-pre-edit]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-pre-edit');
+        const p = presetsApi.getPreset(id);
+        if (p) presetsApi.openEditorModal(p, p.type, () => render());
+      });
+    });
+
+    contentEl.querySelectorAll('[data-pre-dup]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-pre-dup');
+        const p = presetsApi.getPreset(id);
+        if (p) {
+          const dup = JSON.parse(JSON.stringify(p));
+          dup.id = null;
+          dup.name = p.name + ' (Copy)';
+          presetsApi.openEditorModal(dup, dup.type, () => render());
+        }
+      });
+    });
+
+    contentEl.querySelectorAll('[data-pre-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-pre-del');
+        const p = presetsApi.getPreset(id);
+        if (p && confirm('Delete preset "' + p.name + '"?')) {
+          presetsApi.removePreset(id);
+          ui.toast('Deleted preset', 'ok');
+          render();
+        }
+      });
+    });
+
+    const resetAllBtn = contentEl.querySelector('#btn-reset-presets-all');
+    if (resetAllBtn) {
+      resetAllBtn.addEventListener('click', () => {
+        if (confirm('Reset factory presets to venue defaults?')) {
+          presetsApi.resetPresetDefaults();
+          ui.toast('Restored venue defaults', 'ok');
+          render();
+        }
+      });
+    }
+
+    // ============================================================
+    // TECH SPEC BUILDER LIVE EVENT BINDINGS
+    // ============================================================
+    if (activeMainView === 'builder') {
+      // Sync Metadata Inputs
+      const metaTitle = contentEl.querySelector('#ts-meta-title');
+      if (metaTitle) metaTitle.addEventListener('input', () => { spec.title = metaTitle.value; });
+
+      const metaArtist = contentEl.querySelector('#ts-meta-artist');
+      if (metaArtist) metaArtist.addEventListener('input', () => { spec.artist = metaArtist.value; });
+
+      const metaDate = contentEl.querySelector('#ts-meta-date');
+      if (metaDate) metaDate.addEventListener('change', () => { spec.date = metaDate.value; });
+
+      const metaEvent = contentEl.querySelector('#ts-meta-event');
+      if (metaEvent) {
+        metaEvent.addEventListener('change', () => {
+          spec.eventId = metaEvent.value;
+          const selected = advanceEvents.find((e) => e.id === metaEvent.value);
+          spec.eventName = selected ? (selected.name || selected.title) : '';
+          if (selected && selected.space) spec.space = selected.space;
+          if (selected && selected.date) spec.date = selected.date;
+          render();
+        });
+      }
+
+      const metaFoh = contentEl.querySelector('#ts-meta-foh');
+      if (metaFoh) metaFoh.addEventListener('input', () => { spec.contactFoh = metaFoh.value; });
+
+      const metaMon = contentEl.querySelector('#ts-meta-mon');
+      if (metaMon) metaMon.addEventListener('input', () => { spec.contactMon = metaMon.value; });
+
+      // Sync Spec Text Areas
+      ['power', 'fohDesk', 'stageRisers', 'lightingHazer', 'backline', 'additionalNotes'].forEach((key) => {
+        const ta = contentEl.querySelector('#ts-spec-' + key);
+        if (ta) {
+          ta.addEventListener('input', () => {
+            if (!spec.specs) spec.specs = {};
+            spec.specs[key] = ta.value;
+          });
+        }
+      });
+
+      // Aspect 1: Input Channel Row Events
+      contentEl.querySelectorAll('[data-ts-inp-inst]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-inp-inst'), 10);
+          if (spec.inputs[idx]) spec.inputs[idx].instrument = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-mic]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-inp-mic'), 10);
+          if (spec.inputs[idx]) spec.inputs[idx].mic = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-stand]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const idx = parseInt(sel.getAttribute('data-ts-inp-stand'), 10);
+          if (spec.inputs[idx]) spec.inputs[idx].stand = sel.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-pos]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const idx = parseInt(sel.getAttribute('data-ts-inp-pos'), 10);
+          if (spec.inputs[idx]) spec.inputs[idx].pos = sel.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-48v]').forEach((chk) => {
+        chk.addEventListener('change', () => {
+          const idx = parseInt(chk.getAttribute('data-ts-inp-48v'), 10);
+          if (spec.inputs[idx]) {
+            spec.inputs[idx].phantom = chk.checked;
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-notes]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-inp-notes'), 10);
+          if (spec.inputs[idx]) spec.inputs[idx].notes = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-up]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-inp-up'), 10);
+          if (idx > 0) {
+            const item = spec.inputs.splice(idx, 1)[0];
+            spec.inputs.splice(idx - 1, 0, item);
+            spec.inputs.forEach((c, i) => { c.channel = i + 1; });
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-down]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-inp-down'), 10);
+          if (idx < spec.inputs.length - 1) {
+            const item = spec.inputs.splice(idx, 1)[0];
+            spec.inputs.splice(idx + 1, 0, item);
+            spec.inputs.forEach((c, i) => { c.channel = i + 1; });
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-inp-del]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-inp-del'), 10);
+          spec.inputs.splice(idx, 1);
+          spec.inputs.forEach((c, i) => { c.channel = i + 1; });
+          render();
+        });
+      });
+
+      // Aspect 1 Actions
+      const addInpBtn = contentEl.querySelector('#btn-ts-add-inp');
+      if (addInpBtn) {
+        addInpBtn.addEventListener('click', () => {
+          spec.inputs.push({
+            channel: spec.inputs.length + 1,
+            instrument: '',
+            mic: '',
+            stand: 'Tall Boom',
+            pos: 'Downstage Centre',
+            phantom: false,
+            notes: ''
+          });
+          render();
+        });
+      }
+
+      const quick4InpBtn = contentEl.querySelector('#btn-ts-quick-4inp');
+      if (quick4InpBtn) {
+        quick4InpBtn.addEventListener('click', () => {
+          const start = spec.inputs.length + 1;
+          for (let i = 0; i < 4; i++) {
+            spec.inputs.push({
+              channel: start + i,
+              instrument: 'Spare ' + (start + i),
+              mic: 'Beta 58A',
+              stand: 'Tall Boom',
+              pos: 'Stage',
+              phantom: false,
+              notes: ''
+            });
+          }
+          render();
+        });
+      }
+
+      const quick8InpBtn = contentEl.querySelector('#btn-ts-quick-8inp');
+      if (quick8InpBtn) {
+        quick8InpBtn.addEventListener('click', () => {
+          const start = spec.inputs.length + 1;
+          for (let i = 0; i < 8; i++) {
+            spec.inputs.push({
+              channel: start + i,
+              instrument: 'Line ' + (start + i),
+              mic: 'Direct / DI',
+              stand: 'N/A',
+              pos: 'Stage',
+              phantom: false,
+              notes: ''
+            });
+          }
+          render();
+        });
+      }
+
+      const clearInpBtn = contentEl.querySelector('#btn-ts-clear-inp');
+      if (clearInpBtn) {
+        clearInpBtn.addEventListener('click', () => {
+          if (confirm('Clear all input channels in Tech Spec?')) {
+            spec.inputs = [];
+            render();
+          }
+        });
+      }
+
+      const loadInpPresetSel = contentEl.querySelector('#sel-ts-load-inp-preset');
+      if (loadInpPresetSel) {
+        loadInpPresetSel.addEventListener('change', () => {
+          const id = loadInpPresetSel.value;
+          if (!id) return;
+          const p = presetsApi.getPreset(id);
+          if (p && Array.isArray(p.channels)) {
+            spec.inputs = JSON.parse(JSON.stringify(p.channels));
+            ui.toast('Loaded input preset "' + p.name + '"', 'ok');
+            render();
+          }
+        });
+      }
+
+      const saveInpPresetBtn = contentEl.querySelector('#btn-ts-save-inp-preset');
+      if (saveInpPresetBtn) {
+        saveInpPresetBtn.addEventListener('click', () => {
+          presetsApi.openSaveAsModal(spec.inputs, 'input', (saved) => {
+            render();
+          });
+        });
+      }
+
+      // Aspect 2: Output Row Events
+      contentEl.querySelectorAll('[data-ts-out-name]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-out-name'), 10);
+          if (spec.outputs[idx]) spec.outputs[idx].name = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-type]').forEach((sel) => {
+        sel.addEventListener('change', () => {
+          const idx = parseInt(sel.getAttribute('data-ts-out-type'), 10);
+          if (spec.outputs[idx]) {
+            spec.outputs[idx].type = sel.value;
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-dest]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-out-dest'), 10);
+          if (spec.outputs[idx]) spec.outputs[idx].dest = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-stereo]').forEach((chk) => {
+        chk.addEventListener('change', () => {
+          const idx = parseInt(chk.getAttribute('data-ts-out-stereo'), 10);
+          if (spec.outputs[idx]) {
+            spec.outputs[idx].stereo = chk.checked;
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-notes]').forEach((inp) => {
+        inp.addEventListener('input', () => {
+          const idx = parseInt(inp.getAttribute('data-ts-out-notes'), 10);
+          if (spec.outputs[idx]) spec.outputs[idx].notes = inp.value;
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-up]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-out-up'), 10);
+          if (idx > 0) {
+            const item = spec.outputs.splice(idx, 1)[0];
+            spec.outputs.splice(idx - 1, 0, item);
+            spec.outputs.forEach((o, i) => { o.num = i + 1; });
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-down]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-out-down'), 10);
+          if (idx < spec.outputs.length - 1) {
+            const item = spec.outputs.splice(idx, 1)[0];
+            spec.outputs.splice(idx + 1, 0, item);
+            spec.outputs.forEach((o, i) => { o.num = i + 1; });
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-ts-out-del]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-ts-out-del'), 10);
+          spec.outputs.splice(idx, 1);
+          spec.outputs.forEach((o, i) => { o.num = i + 1; });
+          render();
+        });
+      });
+
+      // Aspect 2 Actions
+      const addOutBtn = contentEl.querySelector('#btn-ts-add-out');
+      if (addOutBtn) {
+        addOutBtn.addEventListener('click', () => {
+          spec.outputs.push({
+            num: spec.outputs.length + 1,
+            name: 'Mix ' + (spec.outputs.length + 1),
+            type: 'Wedge',
+            dest: 'Stage',
+            stereo: false,
+            notes: ''
+          });
+          render();
+        });
+      }
+
+      const quick4WedgesBtn = contentEl.querySelector('#btn-ts-quick-4wedges');
+      if (quick4WedgesBtn) {
+        quick4WedgesBtn.addEventListener('click', () => {
+          const names = ['Mix 1 (Lead Vox)', 'Mix 2 (Guitar / DSL)', 'Mix 3 (Bass / DSR)', 'Mix 4 (Drums / USC)'];
+          const locs = ['Downstage Centre', 'Downstage Left', 'Downstage Right', 'Upstage Centre'];
+          names.forEach((name, i) => {
+            spec.outputs.push({
+              num: spec.outputs.length + 1,
+              name: name,
+              type: 'Wedge',
+              dest: locs[i] || 'Stage',
+              stereo: false,
+              notes: '12" / 15" Coaxial Wedge'
+            });
+          });
+          render();
+        });
+      }
+
+      const quick2IemsBtn = contentEl.querySelector('#btn-ts-quick-2iems');
+      if (quick2IemsBtn) {
+        quick2IemsBtn.addEventListener('click', () => {
+          spec.outputs.push({
+            num: spec.outputs.length + 1,
+            name: 'Lead IEM Pair',
+            type: 'IEM',
+            dest: 'Wireless TX 1-2 (G-Band)',
+            stereo: true,
+            notes: 'Stereo Wireless In-Ear Mix'
+          });
+          spec.outputs.push({
+            num: spec.outputs.length + 1,
+            name: 'Guest IEM Pair',
+            type: 'IEM',
+            dest: 'Wireless TX 3-4 (G-Band)',
+            stereo: true,
+            notes: 'Stereo Wireless In-Ear Mix'
+          });
+          render();
+        });
+      }
+
+      const clearOutBtn = contentEl.querySelector('#btn-ts-clear-out');
+      if (clearOutBtn) {
+        clearOutBtn.addEventListener('click', () => {
+          if (confirm('Clear all output mixes in Tech Spec?')) {
+            spec.outputs = [];
+            render();
+          }
+        });
+      }
+
+      const loadOutPresetSel = contentEl.querySelector('#sel-ts-load-out-preset');
+      if (loadOutPresetSel) {
+        loadOutPresetSel.addEventListener('change', () => {
+          const id = loadOutPresetSel.value;
+          if (!id) return;
+          const p = presetsApi.getPreset(id);
+          if (p && Array.isArray(p.channels)) {
+            spec.outputs = JSON.parse(JSON.stringify(p.channels));
+            ui.toast('Loaded output preset "' + p.name + '"', 'ok');
+            render();
+          }
+        });
+      }
+
+      const saveOutPresetBtn = contentEl.querySelector('#btn-ts-save-out-preset');
+      if (saveOutPresetBtn) {
+        saveOutPresetBtn.addEventListener('click', () => {
+          presetsApi.openSaveAsModal(spec.outputs, 'output', (saved) => {
+            render();
+          });
+        });
+      }
+
+      // PDF Printing Triggers
+      const printInpHandler = () => {
+        const meta = [
+          { label: 'SPEC TITLE', val: spec.title || 'Channel Input List' },
+          { label: 'ARTIST / ACT', val: spec.artist || '—' },
+          { label: 'SPACE / VENUE', val: spec.space || '—' },
+          { label: 'DATE', val: spec.date || '—' },
+          { label: 'FOH ENGINEER', val: spec.contactFoh || '—' },
+          { label: 'MONITOR TECH', val: spec.contactMon || '—' }
+        ];
+        presetsApi.printInputPatch(spec.title || 'Channel Input List & Patch Sheet', meta, spec.inputs);
+      };
+
+      const printOutHandler = () => {
+        const meta = [
+          { label: 'SPEC TITLE', val: spec.title || 'Monitor & Output Matrix' },
+          { label: 'ARTIST / ACT', val: spec.artist || '—' },
+          { label: 'SPACE / VENUE', val: spec.space || '—' },
+          { label: 'DATE', val: spec.date || '—' },
+          { label: 'MONITOR TECH', val: spec.contactMon || '—' }
+        ];
+        presetsApi.printOutputPatch(spec.title || 'Monitor & Output Patch Matrix', meta, spec.outputs);
+      };
+
+      const printSpecsHandler = () => {
+        const meta = [
+          { label: 'SPEC TITLE', val: spec.title || 'Production & Stage Specifications' },
+          { label: 'ARTIST / ACT', val: spec.artist || '—' },
+          { label: 'SPACE / VENUE', val: spec.space || '—' },
+          { label: 'DATE', val: spec.date || '—' },
+          { label: 'PRODUCTION CONTACT', val: spec.contactEmail || '—' }
+        ];
+        presetsApi.printProductionSpecs(spec.title || 'Technical & Production Specifications', meta, spec.specs);
+      };
+
+      const printFullHandler = () => {
+        presetsApi.printTechSpec(spec);
+      };
+
+      const btnPrintFullTop = contentEl.querySelector('#btn-print-full-spec');
+      if (btnPrintFullTop) btnPrintFullTop.addEventListener('click', printFullHandler);
+
+      const btnPrintInp = contentEl.querySelector('#btn-ts-print-inp');
+      if (btnPrintInp) btnPrintInp.addEventListener('click', printInpHandler);
+
+      const btnPrintOut = contentEl.querySelector('#btn-ts-print-out');
+      if (btnPrintOut) btnPrintOut.addEventListener('click', printOutHandler);
+
+      const btnPrintSpecs = contentEl.querySelector('#btn-ts-print-specs');
+      if (btnPrintSpecs) btnPrintSpecs.addEventListener('click', printSpecsHandler);
+
+      const btnBottomPrintInp = contentEl.querySelector('#btn-bottom-print-inp');
+      if (btnBottomPrintInp) btnBottomPrintInp.addEventListener('click', printInpHandler);
+
+      const btnBottomPrintOut = contentEl.querySelector('#btn-bottom-print-out');
+      if (btnBottomPrintOut) btnBottomPrintOut.addEventListener('click', printOutHandler);
+
+      const btnBottomPrintSpec = contentEl.querySelector('#btn-bottom-print-spec');
+      if (btnBottomPrintSpec) btnBottomPrintSpec.addEventListener('click', printSpecsHandler);
+
+      const btnBottomPrintFull = contentEl.querySelector('#btn-bottom-print-full');
+      if (btnBottomPrintFull) btnBottomPrintFull.addEventListener('click', printFullHandler);
+
+      // Convert to Event Patch Sheet
+      const saveSheetBtn = contentEl.querySelector('#btn-ts-save-sheet');
+      if (saveSheetBtn) {
+        saveSheetBtn.addEventListener('click', () => {
+          const actId = 'act-ts-1';
+          const actName = spec.artist || 'Main Act';
+          const newSheet = {
+            id: null,
+            name: spec.title || 'Event Patch Sheet',
+            eventName: spec.eventName || spec.title || '',
+            eventId: spec.eventId || '',
+            space: spec.space || 'Main Hall',
+            date: spec.date || '',
+            notes: (spec.specs ? spec.specs.additionalNotes || '' : ''),
+            acts: [
+              { id: actId, name: actName, color: 'blue' }
+            ],
+            homeRunConfig: {
+              name: 'Main Stage Rack (dLive CDM48)',
+              type: 'Digital Stage Rack',
+              location: 'Stage Left',
+              prefix: 'HR',
+              inputChannels: 32,
+              outputChannels: 16
+            },
+            stageboxes: [
+              {
+                id: 'sb-ts-a',
+                letter: 'A',
+                name: 'Drums / Backline (USC)',
+                location: 'Upstage Centre',
+                channels: (spec.inputs || []).slice(0, 12).map((inp, i) => ({
+                  socket: i + 1,
+                  instrument: inp.instrument,
+                  mic: inp.mic,
+                  phantom: !!inp.phantom,
+                  repatch: false,
+                  homeRunCh: i + 1,
+                  actId: actId
+                }))
+              },
+              {
+                id: 'sb-ts-b',
+                letter: 'B',
+                name: 'Front Stage (DS)',
+                location: 'Downstage Centre',
+                channels: (spec.inputs || []).slice(12, 24).map((inp, i) => ({
+                  socket: i + 1,
+                  instrument: inp.instrument,
+                  mic: inp.mic,
+                  phantom: !!inp.phantom,
+                  repatch: false,
+                  homeRunCh: 12 + i + 1,
+                  actId: actId
+                }))
+              }
+            ]
+          };
+
+          presetsApi.openPatchSheetModal(newSheet, () => {
+            activeMainView = 'sheets';
+            render();
+          });
+        });
+      }
+
+      // Reset Tech Spec
+      const resetBtn = contentEl.querySelector('#btn-ts-reset');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          if (confirm('Clear all fields in the Tech Spec builder?')) {
+            RMTP._techSpecState = {
+              title: '',
+              artist: '',
+              space: '',
+              date: '',
+              eventId: '',
+              eventName: '',
+              contactFoh: '',
+              contactMon: '',
+              contactArtist: '',
+              contactEmail: '',
+              inputs: [],
+              outputs: [],
+              specs: {
+                power: '',
+                fohDesk: '',
+                monDesk: '',
+                stageRisers: '',
+                lightingHazer: '',
+                backline: '',
+                additionalNotes: ''
+              }
+            };
+            ui.toast('Cleared Tech Spec builder', 'ok');
+            render();
+          }
+        });
+      }
+    }
+
+    // VIEW 4: DMX Event Handlers
+    if (activeMainView === 'dmx') {
+      const dmxPatch = getDmxPatch();
+      if (!Array.isArray(dmxPatch.fixtures)) dmxPatch.fixtures = [];
+
+      const saveDmxPatchState = () => {
+        if (store && typeof store.write === 'function') {
+          store.write('dmx_active_patch', dmxPatch);
+        }
+      };
+
+      // Universe Filter Buttons
+      contentEl.querySelectorAll('[data-dmx-univ-filter]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activeDmxUniverse = btn.getAttribute('data-dmx-univ-filter');
+          render();
+        });
+      });
+
+      // Metadata inputs
+      const titleInp = contentEl.querySelector('#dmx-meta-title');
+      if (titleInp) titleInp.addEventListener('input', () => { dmxPatch.title = titleInp.value; saveDmxPatchState(); });
+
+      const spaceSel = contentEl.querySelector('#dmx-meta-space');
+      if (spaceSel) spaceSel.addEventListener('change', () => { dmxPatch.space = spaceSel.value; saveDmxPatchState(); });
+
+      const eventSel = contentEl.querySelector('#dmx-meta-event');
+      if (eventSel) {
+        eventSel.addEventListener('change', () => {
+          dmxPatch.eventId = eventSel.value || null;
+          if (dmxPatch.eventId && store) {
+            const ev = store.find('advancing', dmxPatch.eventId);
+            if (ev) {
+              dmxPatch.eventName = ev.name || '';
+              if (ev.space) dmxPatch.space = ev.space;
+              if (ev.date) dmxPatch.date = ev.date;
+              // If event has fixtures and current rig is empty, import them
+              if (Array.isArray(ev.dmx_fixtures) && ev.dmx_fixtures.length && (!dmxPatch.fixtures || !dmxPatch.fixtures.length)) {
+                dmxPatch.fixtures = JSON.parse(JSON.stringify(ev.dmx_fixtures));
+                ui.toast('Imported DMX patch from ' + (ev.name || 'Event'), 'ok');
+              }
+            }
+          } else {
+            dmxPatch.eventName = '';
+          }
+          saveDmxPatchState();
+          render();
+        });
+      }
+
+      const dateInp = contentEl.querySelector('#dmx-meta-date');
+      if (dateInp) dateInp.addEventListener('input', () => { dmxPatch.date = dateInp.value; saveDmxPatchState(); });
+
+      // Save to Database / Event
+      const saveDbBtn = contentEl.querySelector('#btn-dmx-save-db');
+      if (saveDbBtn) {
+        saveDbBtn.addEventListener('click', () => {
+          if (!RMTP.dmx) return;
+          const patchTitle = (dmxPatch.title || 'Main Stage Lighting Rig').trim();
+          const saved = RMTP.dmx.savePatch(dmxPatch);
+          if (saved && saved.id) {
+            dmxPatch.id = saved.id;
+          }
+
+          // The dmx_patches collection handles persistence independently
+          // No need to duplicate this data into the advancing table.
+
+          saveDmxPatchState();
+          ui.toast('DMX Lighting Patch saved to backend database' + (dmxPatch.eventId ? ' & linked event' : '') + '!', 'ok');
+          render();
+        });
+      }
+
+      // Load Template / Saved DB Patch
+      const loadTmplSel = contentEl.querySelector('#sel-dmx-load-template');
+      if (loadTmplSel) {
+        loadTmplSel.addEventListener('change', () => {
+          const val = loadTmplSel.value;
+          if (!val) return;
+          if (val.startsWith('db:')) {
+            const patchId = val.slice(3);
+            const savedPatch = RMTP.dmx ? RMTP.dmx.getPatch(patchId) : null;
+            if (savedPatch) {
+              dmxPatch.id = savedPatch.id;
+              dmxPatch.title = savedPatch.title || savedPatch.name || 'DMX Patch';
+              dmxPatch.space = savedPatch.space || 'Main Hall';
+              dmxPatch.date = savedPatch.date || '';
+              dmxPatch.eventId = savedPatch.eventId || null;
+              dmxPatch.eventName = savedPatch.eventName || '';
+              dmxPatch.fixtures = JSON.parse(JSON.stringify(savedPatch.fixtures || []));
+              saveDmxPatchState();
+              ui.toast('Loaded database patch: ' + dmxPatch.title, 'ok');
+              render();
+            }
+          } else if (val.startsWith('tmpl:')) {
+            const tmplId = val.slice(5);
+            const tmpl = BUILTIN_DMX_TEMPLATES.find((t) => t.id === tmplId);
+            if (tmpl) {
+              dmxPatch.title = tmpl.name;
+              dmxPatch.space = tmpl.space || 'Main Hall';
+              dmxPatch.fixtures = JSON.parse(JSON.stringify(tmpl.fixtures));
+              saveDmxPatchState();
+              ui.toast('Loaded preset: ' + tmpl.name, 'ok');
+              render();
+            }
+          }
+        });
+      }
+
+      // Manage Personalities Library
+      const manageLibBtn = contentEl.querySelector('#btn-dmx-manage-lib');
+      if (manageLibBtn && RMTP.dmx) {
+        manageLibBtn.addEventListener('click', () => {
+          RMTP.dmx.openPersonalitiesManagerModal(() => render());
+        });
+      }
+
+      // Clear Rig
+      const clearRigBtn = contentEl.querySelector('#btn-dmx-clear-rig');
+      if (clearRigBtn) {
+        clearRigBtn.addEventListener('click', () => {
+          if (confirm('Clear all DMX lighting fixtures in this patch?')) {
+            dmxPatch.fixtures = [];
+            saveDmxPatchState();
+            ui.toast('Cleared lighting patch', 'ok');
+            render();
+          }
+        });
+      }
+
+      // Auto-address handlers
+      const triggerAutoAddress = () => {
+        if (!RMTP.dmx) return;
+        dmxPatch.fixtures = RMTP.dmx.autoAddressSequential(dmxPatch.fixtures, 1, 1);
+        saveDmxPatchState();
+        ui.toast('Auto-addressed fixtures sequentially', 'ok');
+        render();
+      };
+
+      const autoAddrTopBtn = contentEl.querySelector('#btn-dmx-auto-addr-top');
+      if (autoAddrTopBtn) autoAddrTopBtn.addEventListener('click', triggerAutoAddress);
+
+      const autoAddrBottomBtn = contentEl.querySelector('#btn-bottom-dmx-auto-addr');
+      if (autoAddrBottomBtn) autoAddrBottomBtn.addEventListener('click', triggerAutoAddress);
+
+      // Add Fixture Buttons
+      const addFixHandler = () => {
+        const persList = RMTP.dmx ? RMTP.dmx.getAllPersonalities() : [];
+        const defaultPers = persList[0] || { id: 'custom-par', manufacturer: 'Generic', model: 'LED Par RGBW', mode: '4ch', channels: 4, category: 'LED Par' };
+
+        // Determine next start address
+        let nextUniv = 1;
+        let nextAddr = 1;
+        if (dmxPatch.fixtures.length > 0) {
+          const lastFix = dmxPatch.fixtures[dmxPatch.fixtures.length - 1];
+          nextUniv = parseInt(lastFix.universe, 10) || 1;
+          const lastAddr = parseInt(lastFix.address, 10) || 1;
+          const lastCh = parseInt(lastFix.channels, 10) || 1;
+          nextAddr = lastAddr + lastCh;
+          if (nextAddr > 512) {
+            nextUniv++;
+            nextAddr = 1;
+          }
+        }
+
+        dmxPatch.fixtures.push({
+          id: 'fix-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          unit: dmxPatch.fixtures.length + 1,
+          personalityId: defaultPers.id,
+          manufacturer: defaultPers.manufacturer,
+          model: defaultPers.model,
+          mode: defaultPers.mode,
+          channels: defaultPers.channels,
+          name: defaultPers.model,
+          location: 'LX1',
+          universe: nextUniv,
+          address: nextAddr
+        });
+
+        saveDmxPatchState();
+        render();
+      };
+
+      const addFixMainBtn = contentEl.querySelector('#btn-add-fixture-main');
+      if (addFixMainBtn) addFixMainBtn.addEventListener('click', addFixHandler);
+
+      const addFixEmptyBtn = contentEl.querySelector('#btn-add-fixture-empty');
+      if (addFixEmptyBtn) addFixEmptyBtn.addEventListener('click', addFixHandler);
+
+      // Live Fixture Row Input Event Handlers
+      contentEl.querySelectorAll('[data-dmx-fld]').forEach((el) => {
+        const idx = parseInt(el.getAttribute('data-dmx-idx'), 10);
+        const fld = el.getAttribute('data-dmx-fld');
+        const fix = dmxPatch.fixtures[idx];
+        if (!fix) return;
+
+        if (fld === 'personalityId') {
+          el.addEventListener('change', () => {
+            if (el.value === '__new__') {
+              if (RMTP.dmx) {
+                RMTP.dmx.openPersonalityModal(null, (newPers) => {
+                  fix.personalityId = newPers.id;
+                  fix.manufacturer = newPers.manufacturer;
+                  fix.model = newPers.model;
+                  fix.mode = newPers.mode;
+                  fix.channels = newPers.channels;
+                  if (!fix.name || fix.name === 'Fixture') fix.name = newPers.model;
+                  saveDmxPatchState();
+                  render();
+                });
+              }
+              return;
+            }
+
+            if (RMTP.dmx) {
+              const p = RMTP.dmx.getPersonality(el.value);
+              if (p) {
+                fix.personalityId = p.id;
+                fix.manufacturer = p.manufacturer;
+                fix.model = p.model;
+                fix.mode = p.mode;
+                fix.channels = p.channels;
+                if (!fix.name || fix.name === 'Fixture') fix.name = p.model;
+                saveDmxPatchState();
+                render();
+              }
+            }
+          });
+        } else if (fld === 'unit') {
+          el.addEventListener('input', () => {
+            fix.unit = el.value;
+            saveDmxPatchState();
+          });
+        } else if (fld === 'name') {
+          el.addEventListener('input', () => {
+            fix.name = el.value;
+            saveDmxPatchState();
+          });
+        } else if (fld === 'location') {
+          el.addEventListener('input', () => {
+            fix.location = el.value;
+            saveDmxPatchState();
+          });
+        } else if (fld === 'universe') {
+          el.addEventListener('input', () => {
+            fix.universe = Math.max(1, parseInt(el.value, 10) || 1);
+            saveDmxPatchState();
+            render();
+          });
+        } else if (fld === 'address') {
+          el.addEventListener('input', () => {
+            fix.address = Math.max(1, Math.min(512, parseInt(el.value, 10) || 1));
+            saveDmxPatchState();
+            render();
+          });
+        }
+      });
+
+      // Fixture Row Actions (Duplicate, Move Up, Move Down, Delete)
+      contentEl.querySelectorAll('[data-dmx-dup]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-dmx-dup'), 10);
+          const src = dmxPatch.fixtures[idx];
+          if (!src) return;
+
+          const ch = Math.max(1, parseInt(src.channels, 10) || 1);
+          let newAddr = (parseInt(src.address, 10) || 1) + ch;
+          let newUniv = parseInt(src.universe, 10) || 1;
+          if (newAddr > 512) {
+            newUniv++;
+            newAddr = 1;
+          }
+
+          const dup = JSON.parse(JSON.stringify(src));
+          dup.id = 'fix-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+          dup.unit = (parseInt(src.unit, 10) || (idx + 1)) + 1;
+          dup.universe = newUniv;
+          dup.address = newAddr;
+
+          dmxPatch.fixtures.splice(idx + 1, 0, dup);
+          saveDmxPatchState();
+          ui.toast('Duplicated fixture: ' + (dup.name || dup.model), 'ok');
+          render();
+        });
+      });
+
+      contentEl.querySelectorAll('[data-dmx-up]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-dmx-up'), 10);
+          if (idx > 0) {
+            const item = dmxPatch.fixtures.splice(idx, 1)[0];
+            dmxPatch.fixtures.splice(idx - 1, 0, item);
+            saveDmxPatchState();
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-dmx-down]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-dmx-down'), 10);
+          if (idx < dmxPatch.fixtures.length - 1) {
+            const item = dmxPatch.fixtures.splice(idx, 1)[0];
+            dmxPatch.fixtures.splice(idx + 1, 0, item);
+            saveDmxPatchState();
+            render();
+          }
+        });
+      });
+
+      contentEl.querySelectorAll('[data-dmx-del]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-dmx-del'), 10);
+          dmxPatch.fixtures.splice(idx, 1);
+          saveDmxPatchState();
+          render();
+        });
+      });
+
+      // Export CSV & Print PDF Handlers
+      const exportDmxCsvHandler = () => {
+        if (RMTP.dmx) {
+          RMTP.dmx.exportCsv(dmxPatch.fixtures, (dmxPatch.title || 'DMX_Patch_Sheet').replace(/[^a-zA-Z0-9_-]/g, '_') + '.csv');
+        }
+      };
+
+      const topCsvBtn = contentEl.querySelector('#btn-top-dmx-export-csv');
+      if (topCsvBtn) topCsvBtn.addEventListener('click', exportDmxCsvHandler);
+
+      const bottomCsvBtn = contentEl.querySelector('#btn-bottom-dmx-export-csv');
+      if (bottomCsvBtn) bottomCsvBtn.addEventListener('click', exportDmxCsvHandler);
+
+      const printDmxPdfHandler = () => {
+        const meta = [
+          { label: 'PATCH / RIG TITLE', val: dmxPatch.title || 'DMX Lighting Patch Sheet' },
+          { label: 'VENUE / SPACE', val: dmxPatch.space || '—' },
+          { label: 'DATE', val: dmxPatch.date || '—' },
+          { label: 'TOTAL FIXTURES', val: dmxPatch.fixtures.length + ' fixtures' }
+        ];
+        presetsApi.printDmxPatchSheet(dmxPatch.title || 'DMX Lighting Patch Sheet', meta, dmxPatch.fixtures);
+      };
+
+      const topPrintBtn = contentEl.querySelector('#btn-top-dmx-print');
+      if (topPrintBtn) topPrintBtn.addEventListener('click', printDmxPdfHandler);
+
+      const bottomPrintBtn = contentEl.querySelector('#btn-bottom-dmx-print');
+      if (bottomPrintBtn) bottomPrintBtn.addEventListener('click', printDmxPdfHandler);
+    }
+  }
+
+  render();
+};

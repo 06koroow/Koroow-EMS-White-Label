@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1015" />
+  <meta name="description" content="Meridian Arts Tech Portal — Technical operations platform for multi-space venue advancing, cinema QC, rota scheduling, maintenance, inventory, and SOPs." />
+  <meta property="og:title" content="Meridian Arts — Tech Portal" />
+  <meta property="og:description" content="Meridian Arts Tech Portal — Technical operations platform for multi-space venue advancing, cinema QC, rota scheduling, maintenance, inventory, and SOPs." />
+  <title>Meridian Arts — Tech Portal</title>
+  <link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+  <link rel="apple-touch-icon" href="assets/logo.svg" />
+
+  <!-- Tailwind (Play CDN). No build step required to start.
+       For production, swap this for the Tailwind CLI build — see README. -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Single source of truth for theming lives in css/app.css (:root variables).
+    // Tailwind colours below point at those variables, so re-skinning the whole
+    // portal is a matter of editing the hex values in one place.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg:        'var(--bg)',
+            panel:     'var(--panel)',
+            panel2:    'var(--panel-2)',
+            line:      'var(--line)',
+            ink:       'var(--ink)',
+            muted:     'var(--muted)',
+            accent:    'var(--accent)',
+            'accent-ink': 'var(--accent-ink)',
+            ok:        'var(--ok)',
+            info:      'var(--info)',
+            danger:    'var(--danger)',
+          },
+          fontFamily: {
+            display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+            sans:    ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+            mono:    ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+          },
+          borderRadius: { xl2: '1rem' },
+        },
+      },
+    };
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/app.css?v=1789650200000" />
+</head>
+<body class="bg-bg text-ink font-sans antialiased">
+
+  <!-- The whole UI is rendered into this root by js/app.js -->
+  <div id="app"></div>
+
+  <!-- Toast layer -->
+  <div id="toast-layer" class="fixed z-50 bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none"></div>
+
+  <!-- Modal layer -->
+  <div id="modal-layer"></div>
+
+  <!-- Print-only sheet target (QR labels render here) -->
+  <div id="print-root"></div>
+
+  <!-- ============================================================
+       Load order matters (no bundler): foundations first, then
+       data, then shared UI, then views (which register themselves),
+       then the router, then the bootstrap.
+       ============================================================ -->
+  <script src="js/config.js?v=1789649600000"></script>
+  <script src="data/seed.js"></script>
+  <script src="js/store.js?v=1789649600000"></script>
+  <script src="js/ui.js?v=1789649600000"></script>
+  <script src="js/auth.js?v=1789649600000"></script>
+  <script src="js/files.js?v=1789649600000"></script>
+
+  <!-- SharePoint / Microsoft Graph backend (Disabled / commented out in favour of Supabase) -->
+  <!--
+  <script src="https://alcdn.msauth.net/browser/latest/js/msal-browser.min.js"></script>
+  <script src="js/graph-config.js?v=1789648296023"></script>
+  <script src="js/graph.js?v=1789648296023"></script>
+  <script src="js/sync.js?v=1789648296023"></script>
+  -->
+
+  <!-- Supabase backend (opt-in). Inert until js/supabase-config.js has a url. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js?v=1789649800000"></script>
+  <script src="js/supabase.js?v=1789649800000"></script>
+  <script src="js/sync-supabase.js?v=1789649800000"></script>
+
+  <!-- Vendored QR & Document libraries (no build step) -->
+  <script src="vendor/qrcode-generator.js"></script>
+  <script src="vendor/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="js/qr.js?v=1789649500000"></script>
+  <script src="js/dmx.js?v=1789649500000"></script>
+
+  <script src="js/views/dashboard.js?v=1789649500000"></script>
+  <script src="js/views/procedures.js?v=1789649500000"></script>
+  <script src="js/views/maintenance.js?v=1789649500000"></script>
+  <script src="js/views/inventory.js?v=1789649500000"></script>
+  <script src="js/views/users.js?v=1789649500000"></script>
+  <script src="js/views/presets.js?v=1789649500000"></script>
+  <script src="js/views/advancing.js?v=1789649900000"></script>
+  <script src="js/views/dcp.js"></script>
+  <script src="js/views/tasks.js"></script>
+  <script src="js/views/rota.js?v=1789650600000"></script>
+  <script src="js/views/venues.js?v=1789650600000"></script>
+  <script src="js/views/guides.js"></script>
+  <script src="js/router.js?v=1789649500000"></script>
+  <script src="js/app.js?v=1789650600000"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "White Label Version For CV",
+  "description": "Meridian Arts Tech Portal — White-labeled multi-space venue and cinema technical operations web app.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
